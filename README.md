@@ -64,6 +64,14 @@ Settings resolve in order: **CLI flags > environment variables > defaults**.
 | Embedding model | `--embed-model` | `EMBED_MODEL` | `qwen3-embedding:8b` |
 | Collection name | `--collection` | `COLLECTION_NAME` | `agent_scenarios` |
 
+## Upgrading from mcp-ollama-qdrant
+
+Upgrading from the old `mcp-ollama-qdrant` repo/server: collections and
+memories carry over unchanged — the package rename does not touch Qdrant.
+Register the new entry points (`vector-memory` CLI, `vector-memory-mcp`
+server) in your client config instead of `mcp-ollama-qdrant`; the default
+collection `agent_scenarios` is reused as-is.
+
 ## Running
 
 With uv (recommended — handles the venv and sync automatically):

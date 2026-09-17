@@ -1,9 +1,9 @@
 ---
-name: vector-memory
-description: Persistent vector memory for AI agents via Ollama embeddings + Qdrant. Use when the agent needs to save, recall, or semantically search notes/scenarios/documents across sessions.
+name: vector-memory-mcp
+description: "Use for agent memory via vector-memory MCP tools (save/search)."
 ---
 
-# vector-memory (Agent Vector Memory)
+# vector-memory-mcp (Agent Vector Memory)
 
 MCP stdio server giving the agent a persistent semantic memory: text is
 embedded by Ollama (`qwen3-embedding:8b`, 4096-dim) and stored in Qdrant
@@ -14,7 +14,7 @@ embedded by Ollama (`qwen3-embedding:8b`, 4096-dim) and stored in Qdrant
 - Persisting durable knowledge: scenario outcomes, decisions, facts, doc
   summaries — for later recall across sessions.
 - Recalling past context: search memories by meaning, not keyword.
-- Do NOT use for: indexing codebases (that is `mcp-code-indexer`), storing
+- Do NOT use for: indexing codebases (that is `code-indexer`), storing
   secrets/credentials, or exact-match lookup (it is semantic, not a DB).
 
 ## Tools (stdio MCP, six)
@@ -102,7 +102,9 @@ Order: CLI flags > env vars > defaults.
 | Collection | `--collection` | `COLLECTION_NAME` | `agent_scenarios` |
 
 Collection is created on server startup if missing (dimension probed from the
-model). Run via `uv run vector-memory` from the repo directory.
+model). Run via `uv run vector-memory-mcp` from the repo directory
+(`/home/keum/dev/athena/vector-memory/`); the one-shot CLI binary is
+`vector-memory` (see the `vector-memory` skill).
 
 ## Gotchas
 
