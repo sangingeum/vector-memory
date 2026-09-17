@@ -1,5 +1,5 @@
 [project]
-name = "mcp-ollama-qdrant"
+name = "vector-memory"
 version = "0.1.0"
 description = "MCP server: Ollama embeddings + Qdrant vector memory"
 readme = "README.md"
@@ -12,10 +12,12 @@ dependencies = [
     "numpy<2",
     "ollama>=0.6.2",
     "qdrant-client<1.15",
+    "typer>=0.12",
 ]
 
 [project.scripts]
-mcp-ollama-qdrant = "mcp_ollama_qdrant:main"
+vector-memory = "vector_memory.cli:main"
+vector-memory-mcp = "vector_memory.server:main"
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]

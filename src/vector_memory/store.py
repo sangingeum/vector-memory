@@ -22,7 +22,7 @@ from qdrant_client.models import (
     MatchValue,
 )
 
-logger = logging.getLogger("mcp-ollama-qdrant")
+logger = logging.getLogger("vector-memory")
 
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://192.168.1.105:6333")
 COLLECTION_NAME = os.environ.get("COLLECTION_NAME", "agent_scenarios")
@@ -76,7 +76,7 @@ def ensure_collection_for(
         vectors = vectors.get("")
     if vectors is None:
         sys.stderr.write(
-            f"[mcp-ollama-qdrant] fatal error: collection {collection_name!r} "
+            f"[vector-memory] fatal error: collection {collection_name!r} "
             f"has no default vector configuration (appears to be a named-vectors collection).\n"
             f"  fix: delete and recreate the collection, or pass --collection with a different name.\n"
         )
@@ -87,7 +87,7 @@ def ensure_collection_for(
     existing_distance = vectors.distance
     if existing_size != actual_dim:
         sys.stderr.write(
-            f"[mcp-ollama-qdrant] fatal error (dimension mismatch): collection "
+            f"[vector-memory] fatal error (dimension mismatch): collection "
             f"{collection_name!r} was created with {existing_size} dimensions, but the "
             f"current embedding model {embed_model!r} produces {actual_dim}-dimensional "
             f"vectors. Continuing would store broken vectors and corrupt search.\n"

@@ -1,12 +1,13 @@
-# mcp-ollama-qdrant
+# vector-memory
 
-An [MCP](https://modelcontextprotocol.io) server that gives your AI agent a
-**persistent vector memory** backed by:
+Persistent **vector memory** for AI agents backed by **Ollama** (embeddings,
+tested with `qwen3-embedding:8b`) and **Qdrant** (vector store). Two entry
+points over the same core (`vector_memory.core`):
 
-- **Ollama** for embeddings (tested with `qwen3-embedding:8b`)
-- **Qdrant** as the vector store
+- `vector-memory-mcp` — MCP stdio server (six tools, 1:1 with core ops)
+- `vector-memory` — one-shot CLI (typer, 1:1 with the same core ops)
 
-It exposes six tools over the stdio MCP transport:
+It exposes six operations:
 
 | Tool | Description |
 |---|---|
@@ -69,10 +70,13 @@ With uv (recommended — handles the venv and sync automatically):
 
 ```bash
 uv sync
-uv run mcp-ollama-qdrant            # or: uv run python mcp_server.py
-# with overrides:
-uv run mcp-ollama-qdrant --qdrant-url http://localhost:6333
+uv run vector-memory-mcp        # run the stdio MCP server (or: python mcp_server.py)
+uv run vector-memory search "db outage"   # one-shot CLI (no daemon)
+uv run vector-memory --help               # save | save-many | search | update | delete | list-collections
 ```
+
+Every CLI invocation is one-shot — there is no daemon and no CLI-to-server
+RPC; the CLI calls the same core functions as the MCP server directly.
 
 Interactive testing / inspection:
 
@@ -90,8 +94,8 @@ Add to your client's MCP config (Claude Desktop, Hermes, etc.):
     "vector-memory": {
       "command": "uv",
       "args": [
-        "--directory", "/path/to/mcp-ollama-qdrant",
-        "run", "mcp-ollama-qdrant"
+        "--directory", "/path/to/vector-memory",
+        "run", "vector-memory"
       ],
       "env": {
         "OLLAMA_URL": "http://192.168.X.X:11434",
@@ -113,7 +117,7 @@ mcp:
   servers:
     vector-memory:
       command: uv
-      args: ["--directory", "/path/to/mcp-ollama-qdrant", "run", "mcp-ollama-qdrant"]
+      args: ["--directory", "/path/to/vector-memory", "run", "vector-memory"]
 ```
 
 ## Testing
@@ -129,7 +133,7 @@ searches for them, prints similarity scores):
 
 ```bash
 uv sync
-uv run python test_server.py
+uv run python scripts/live_smoke.py
 ```
 
 ## Notes

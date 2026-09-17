@@ -14,8 +14,8 @@ from qdrant_client.models import Distance, Record, ScoredPoint
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mcp_ollama_qdrant import embedding as _emb
-from mcp_ollama_qdrant import store as _store
+from vector_memory import embedding as _emb
+from vector_memory import store as _store
 
 
 class FakeEmbedder:

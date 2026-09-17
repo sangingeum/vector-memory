@@ -1,9 +1,9 @@
 ---
-name: mcp-ollama-qdrant
+name: vector-memory
 description: Persistent vector memory for AI agents via Ollama embeddings + Qdrant. Use when the agent needs to save, recall, or semantically search notes/scenarios/documents across sessions.
 ---
 
-# mcp-ollama-qdrant (Agent Vector Memory)
+# vector-memory (Agent Vector Memory)
 
 MCP stdio server giving the agent a persistent semantic memory: text is
 embedded by Ollama (`qwen3-embedding:8b`, 4096-dim) and stored in Qdrant
@@ -102,7 +102,7 @@ Order: CLI flags > env vars > defaults.
 | Collection | `--collection` | `COLLECTION_NAME` | `agent_scenarios` |
 
 Collection is created on server startup if missing (dimension probed from the
-model). Run via `uv run mcp-ollama-qdrant` from the repo directory.
+model). Run via `uv run vector-memory` from the repo directory.
 
 ## Gotchas
 

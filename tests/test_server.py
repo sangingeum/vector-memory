@@ -11,7 +11,7 @@ import json
 import pytest
 
 import mcp_server as s
-from mcp_ollama_qdrant import embedding as emb
+from vector_memory import embedding as emb
 from tests.conftest import FakeEmbedder, FakeQdrant
 
 
@@ -22,8 +22,8 @@ def env(monkeypatch):
     fq = FakeQdrant()
     monkeypatch.setattr(emb, "ollama_client", embedder)
     # Point every alias the tools read at the fresh fake.
-    import mcp_ollama_qdrant.server as srv
-    from mcp_ollama_qdrant import store
+    import vector_memory.server as srv
+    from vector_memory import store
     monkeypatch.setattr(store, "qdrant", fq)   # used by ensure_collection_for
     monkeypatch.setattr(s, "qdrant", fq)
     monkeypatch.setattr(srv, "qdrant", fq)
