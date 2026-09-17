@@ -53,6 +53,18 @@ string includes a warning line (e.g.
 - A reachable Ollama instance (default `http://192.168.X.X:11434`)
 - A reachable Qdrant instance (default `http://192.168.X.X:6333`)
 
+## Installation (CLI)
+
+From the repo directory, install both executables as editable `uv` tools (on
+PATH in `~/.local/bin`, edits to the checkout take effect immediately):
+
+```bash
+uv tool install -e .
+```
+
+This installs `vector-memory` (and the optional `vector-memory-mcp` server
+executable). Verify with `vector-memory list-collections`.
+
 ## Configuration
 
 Settings resolve in order: **CLI flags > environment variables > defaults**.
