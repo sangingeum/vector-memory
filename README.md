@@ -92,6 +92,25 @@ Interactive testing / inspection:
 uv run mcp dev mcp_server.py
 ```
 
+## CLI commands
+
+```bash
+vector-memory save "text" --metadata '{"project":"p","type":"decision","tags":["x"]}' [--collection C]
+vector-memory save-many "text A" "text B" --metadata '{...}' [--collection C]
+vector-memory search "query" [--limit N] [--filter '{"tags":["x"]}'] [--project p] [--collection C]
+vector-memory update <point-id> --text "new text" [--metadata '{...}']
+vector-memory delete <point-id>
+vector-memory list-collections
+```
+
+Semantics worth knowing: point IDs are uuid4 — saving identical text twice
+creates two points (dedupe is the caller's job; use `update` to modify in
+place). `update --metadata` replaces the whole payload metadata; pass only
+`--text` to keep it. Search hits include ID + score + metadata + full text.
+`--project`-scoped searches only see memories saved with a `project` metadata
+field. Invalid metadata/filter JSON continues with a `Warning:` line — check
+for it.
+
 ### MCP client config
 
 Add to your client's MCP config (Claude Desktop, Hermes, etc.):
