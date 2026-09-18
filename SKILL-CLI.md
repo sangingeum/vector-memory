@@ -6,10 +6,9 @@ version: 1.0.0
 
 # vector-memory (CLI)
 
-One-shot typer CLI over `vector_memory.core` (same core as the
-`vector-memory-mcp` MCP server — see that skill for the agent/MCP surface and
-the metadata convention). Repo: `/home/keum/dev/athena/vector-memory/`.
-Binary: `vector-memory`; package `vector_memory`. No daemon, no server RPC.
+One-shot typer CLI over `vector_memory.core`. Repo:
+`/home/keum/dev/athena/vector-memory/`. Binary: `vector-memory`; package
+`vector_memory`. CLI-only — no MCP variant exists. No daemon, no server RPC.
 
 ## Commands
 
