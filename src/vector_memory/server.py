@@ -9,6 +9,7 @@ the public contract and are unchanged). Embedding/Qdrant access lives in the
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from typing import Any
 
@@ -93,6 +94,9 @@ def list_collections() -> str:
 
 def main() -> None:
     """CLI entry point (``vector-memory-mcp``)."""
+    from .logsetup import configure_logging
+
+    configure_logging(verbose=os.environ.get("VERBOSE", "") not in ("", "0"))
     logger.info(
         "Agent Vector Memory MCP starting — ollama=%s qdrant=%s model=%s collection=%s",
         OLLAMA_URL, QDRANT_URL, EMBED_MODEL, COLLECTION_NAME,

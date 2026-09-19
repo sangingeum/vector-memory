@@ -85,6 +85,17 @@ def list_collections_cmd() -> None:
     typer.echo(list_collections())
 
 
+@app.callback()
+def _main(
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Verbose diagnostics (INFO) on stderr."),
+) -> None:
+    """Global options for the vector-memory CLI."""
+    from .logsetup import configure_logging
+
+    configure_logging(verbose=verbose)
+
+
 def main() -> None:
     """Console-script entry point (``vector-memory``)."""
     app()
