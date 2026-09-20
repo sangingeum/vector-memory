@@ -6,14 +6,13 @@ version: 1.0.0
 
 # vector-memory (CLI)
 
-One-shot typer CLI over `vector_memory.core`. Repo:
-`/home/keum/dev/athena/vector-memory/`. Binary: `vector-memory`; package
+One-shot typer CLI over `vector_memory.core`. Binary: `vector-memory`; package
 `vector_memory`. CLI-only, no daemon, no server RPC.
 
 ## Commands
 
 ```bash
-cd /home/keum/dev/athena/vector-memory && uv run vector-memory <cmd>   # or installed console script
+uv run vector-memory <cmd>   # or installed console script
 vector-memory save "text" --metadata '{"project":"p","type":"decision","tags":["x"]}' [--collection C]
 vector-memory save-many "text A" "text B" --metadata '{"tags":["ops"]}'
 vector-memory search "db outage" [--limit 3] [--filter '{"tags":["x"]}'] [--project p] [--collection C]
