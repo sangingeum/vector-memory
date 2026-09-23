@@ -9,9 +9,10 @@ authors = [
 requires-python = ">=3.11,<3.14"
 dependencies = [
     "mcp[cli]<2",
-    "numpy<2",
+    "numpy<2; python_version < '3.13'",
+    "numpy>=2; python_version >= '3.13'",
     "ollama>=0.6.2",
-    "qdrant-client<1.15",
+    "qdrant-client>=1.15,<2",
     "typer>=0.12",
 ]
 

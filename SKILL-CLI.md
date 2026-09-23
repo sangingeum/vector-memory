@@ -13,8 +13,9 @@ One-shot typer CLI over `vector_memory.core`. Binary: `vector-memory`; package
 
 ```bash
 uv run vector-memory <cmd>   # or installed console script
-vector-memory save "text" --metadata '{"project":"p","type":"decision","tags":["x"]}' [--collection C]
-vector-memory save-many "text A" "text B" --metadata '{"tags":["ops"]}'
+vector-memory save "text" --project p --type decision --tags x [--collection C]
+# equivalent long form: --metadata '{"project":"p","type":"decision","tags":["x"]}'
+vector-memory save-many "text A" "text B" --project p [--metadata '{...}']
 vector-memory search "db outage" [--limit 3] [--filter '{"tags":["x"]}'] [--project p] [--collection C]
 vector-memory update <point-id> --text "new text"        # re-embeds; --metadata replaces payload wholesale
 vector-memory delete <point-id>

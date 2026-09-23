@@ -30,21 +30,32 @@ app = typer.Typer(
 @app.command()
 def save(
     text: str = typer.Argument(..., help="Text to embed and store."),
+    project: str = typer.Option("", help="Project scope, stored as metadata key 'project'."),
+    type: str = typer.Option("", help="Entry kind, stored as metadata key 'type'."),
+    tags: list[str] = typer.Option([], help="Repeatable; each becomes one entry of metadata 'tags'."),
     metadata: str = typer.Option("{}", help="Metadata as JSON string, e.g. '{\"tags\": [\"a\"]}'."),
     collection: str = typer.Option("", help="Target collection (created if missing)."),
 ) -> None:
     """Save a document/scenario outcome into the vector DB."""
-    typer.echo(save_memory(text, metadata, collection))
+    typer.echo(save_memory(text, metadata, collection, project=project, type=type, tags=list(tags)))
 
 
 @app.command()
 def save_many(
     texts: list[str] = typer.Argument(..., help="Texts to embed and store in one batch."),
+    project: str = typer.Option("", help="Project scope, stored as metadata key 'project'."),
+    type: str = typer.Option("", help="Entry kind, stored as metadata key 'type'."),
+    tags: list[str] = typer.Option([], help="Repeatable; each becomes one entry of metadata 'tags'."),
     metadata: str = typer.Option("{}", help="Metadata applied to every document (JSON)."),
     collection: str = typer.Option("", help="Target collection (created if missing)."),
 ) -> None:
     """Save multiple documents in one batch (single embed + upsert)."""
-    typer.echo(save_memories(list(texts), metadata, collection))
+    typer.echo(
+        save_memories(
+            list(texts), metadata, collection,
+            project=project, type=type, tags=list(tags),
+        )
+    )
 
 
 @app.command()

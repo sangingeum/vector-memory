@@ -11,8 +11,8 @@ It exposes six operations:
 
 | Tool | Description |
 |---|---|
-| `save_memory(text, metadata, collection)` | Embeds `text` via Ollama and upserts it into Qdrant. `metadata` is optional metadata — a JSON object or a JSON string, both accepted — stored alongside the vector. Optional `collection` targets a specific collection (created on the fly if missing; empty = server default). |
-| `save_memories(texts, metadata, collection)` | Batch version: embeds a list of texts in one Ollama call and upserts them as a single batch. `metadata` (object or JSON string) applies to all documents. |
+| `save_memory(text, metadata, collection, project="", type="", tags=None)` | Embeds `text` via Ollama and upserts it into Qdrant. `metadata` is optional metadata — a JSON object or a JSON string, both accepted — stored alongside the vector. `project`/`type`/`tags` are convenience kwargs merged into the same metadata keys (explicit values win). Optional `collection` targets a specific collection (created on the fly if missing; empty = server default). |
+| `save_memories(texts, metadata, collection, project="", type="", tags=None)` | Batch version: embeds a list of texts in one Ollama call and upserts them as a single batch. `metadata` (object or JSON string) applies to all documents, as do `project`/`type`/`tags`. |
 | `search_memory(query, limit, filter, collection)` | Embeds `query` and returns the `limit` most similar stored memories — each hit includes its point **ID**, similarity **score**, **metadata**, and text, so you can `delete_memory`/`update_memory` straight from search output. Optional `filter` is a payload filter — JSON object or JSON string (see below). |
 | `update_memory(point_id, text, metadata, collection)` | Re-embeds `text` and overwrites the point in place (same ID). Empty `metadata` keeps the existing payload metadata; a JSON object or JSON string replaces it. Nonexistent IDs return an error. |
 | `delete_memory(point_id, collection)` | Deletes the stored memory (point) with the given ID. |
@@ -107,8 +107,8 @@ uv run mcp dev mcp_server.py
 ## CLI commands
 
 ```bash
-vector-memory save "text" --metadata '{"project":"p","type":"decision","tags":["x"]}' [--collection C]
-vector-memory save-many "text A" "text B" --metadata '{...}' [--collection C]
+vector-memory save "text" --project p --type decision --tags x [--metadata '{...}'] [--collection C]
+vector-memory save-many "text A" "text B" --project p [--metadata '{...}'] [--collection C]
 vector-memory search "query" [--limit N] [--filter '{"tags":["x"]}'] [--project p] [--collection C]
 vector-memory update <point-id> --text "new text" [--metadata '{...}']
 vector-memory delete <point-id>

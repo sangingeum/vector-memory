@@ -40,10 +40,31 @@ def _apply_collection(collection: str | None) -> str:
     return name
 
 
+def _apply_explicit_metadata(
+    meta_dict: dict[str, Any],
+    project: str = "",
+    type: str = "",
+    tags: list[str] | None = None,
+) -> None:
+    """Merge CLI convenience options into the parsed metadata dict.
+
+    Explicit options win over same-key entries from ``--metadata`` JSON;
+    keys are only written when a non-empty value was supplied.
+    """
+    if project:
+        meta_dict["project"] = project
+    if type:
+        meta_dict["type"] = type
+    if tags:
+        meta_dict["tags"] = list(tags)
+
+
 def save_memory(text: str, metadata: str | dict[str, Any] = "{}",
-                collection: str = "") -> str:
+                collection: str = "", project: str = "", type: str = "",
+                tags: list[str] | None = None) -> str:
     """Save a document/scenario outcome into the vector DB."""
     meta_dict, warning = parse_metadata(metadata)
+    _apply_explicit_metadata(meta_dict, project=project, type=type, tags=tags)
     try:
         name = _apply_collection(collection)
         vector = embed(text)
@@ -59,9 +80,11 @@ def save_memory(text: str, metadata: str | dict[str, Any] = "{}",
 
 
 def save_memories(texts: list[str], metadata: str | dict[str, Any] = "{}",
-                  collection: str = "") -> str:
+                  collection: str = "", project: str = "", type: str = "",
+                  tags: list[str] | None = None) -> str:
     """Save multiple documents in one batch (single embed + upsert round trip)."""
     meta_dict, warning = parse_metadata(metadata)
+    _apply_explicit_metadata(meta_dict, project=project, type=type, tags=tags)
     if not texts:
         return _append_warning("No texts to save.", warning)
     try:
