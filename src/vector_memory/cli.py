@@ -38,18 +38,39 @@ def _guard(result_or_exc: str | BaseException) -> str:
     return result_or_exc
 
 
-def _emit(result: str) -> None:
-    """Print a core-op result, honoring the stdout/stderr contract.
+def _run_cli(op, *args, json_mode: bool = False, **kwargs) -> None:
+    """Run a core op for a CLI command: catch, format, emit (VM-20 contract)."""
+    try:
+        result = op(*args, **kwargs)
+    except Exception as exc:  # boundary error contract
+        result = _guard(exc)
+    _emit(result, json_mode=json_mode)
 
-    ``ErrorType: ...`` lines go to stderr with exit code 1; warnings stay on
-    the result string (stderr in text mode is reserved for diagnostics).
+
+def _emit(result: str, *, json_mode: bool = False) -> None:
+    """Print a core-op result, honoring the stdout/stderr contract (VM-20).
+
+    ``ErrorType: ...`` lines go to stderr with exit code 1. In ``--json`` mode
+    the envelope carries ``schema: 1`` and, on failure, ``error``/``error_type``.
     """
-    if result.startswith(("ArgumentError:", "ConfigError:", "NotFoundError:",
-                          "ConflictError:", "SensitiveContentError:",
-                          "BackendError:", "InternalError:")):
-        typer.echo(result, err=True)
+    error_prefixes = ("ArgumentError:", "ConfigError:", "NotFoundError:",
+                      "ConflictError:", "SensitiveContentError:",
+                      "BackendError:", "InternalError:")
+    is_error = result.startswith(error_prefixes)
+    if json_mode:
+        import json
+
+        payload: dict[str, object] = {"schema": 1, "ok": not is_error}
+        if is_error:
+            payload["error"] = result
+            payload["error_type"] = result.split(":", 1)[0]
+        else:
+            payload["result"] = result
+        typer.echo(json.dumps(payload, ensure_ascii=False))
+    else:
+        typer.echo(result, err=is_error)
+    if is_error:
         raise typer.Exit(1)
-    typer.echo(result)
 
 
 @app.command()
@@ -71,6 +92,7 @@ def save(
     allow_sensitive: bool = typer.Option(
         False, "--allow-sensitive",
         help="Override the secret-detection guard (use only for false positives)."),
+    json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
 ) -> None:
     """Save a document/scenario outcome into the vector DB."""
     supersedes_ids = [s.strip() for s in supersedes.split(",") if s.strip()] if supersedes else None
@@ -80,13 +102,13 @@ def save(
     if allow_sensitive:
         _os.environ[_set_override] = "1"
     try:
-        typer.echo(_guard(save_memory(text, metadata, collection, project=project, type=type,
-                                      tags=list(tags), supersedes=supersedes_ids,
-                                      allow_duplicate=allow_duplicate, on_similar=on_similar)))
+        _run_cli(save_memory, text, metadata, collection, project=project, type=type,
+                 tags=list(tags), supersedes=supersedes_ids,
+                 allow_duplicate=allow_duplicate, on_similar=on_similar,
+                 json_mode=json_output)
     finally:
         if allow_sensitive:
             _os.environ.pop(_set_override, None)
-
 
 @app.command()
 def save_many(
@@ -96,15 +118,14 @@ def save_many(
     tags: list[str] = typer.Option([], help="Repeatable; each becomes one entry of metadata 'tags'."),
     metadata: str = typer.Option("{}", help="Metadata applied to every document (JSON)."),
     collection: str = typer.Option("", help="Target collection (created if missing)."),
+    json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
 ) -> None:
     """Save multiple documents in one batch (single embed + upsert)."""
-    _emit(
-        _guard(
-            save_memories(
-                list(texts), metadata, collection,
-                project=project, type=type, tags=list(tags),
-            )
-        )
+    _run_cli(
+        save_memories,
+        list(texts), metadata, collection,
+        project=project, type=type, tags=list(tags),
+        json_mode=json_output,
     )
 
 
@@ -118,10 +139,11 @@ def search(
     include_inactive: bool = typer.Option(
         False, "--include-inactive",
         help="Include superseded/archived memories (annotated with status)."),
+    json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
 ) -> None:
     """Search stored documents/scenarios semantically similar to a query."""
-    _emit(_guard(search_memory(query, limit, filter, collection, project,
-                               include_inactive=include_inactive)))
+    _run_cli(search_memory, query, limit, filter, collection, project,
+             include_inactive=include_inactive, json_mode=json_output)
 
 
 @app.command()
@@ -133,10 +155,11 @@ def update(
         False, "--merge-metadata",
         help="Merge the given metadata keys into the existing payload instead of replacing."),
     collection: str = typer.Option("", help="Collection holding the point."),
+    json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
 ) -> None:
     """Update an existing memory in place under the same ID."""
-    _emit(_guard(update_memory(point_id, text, metadata, collection,
-                               merge_metadata=merge_metadata)))
+    _run_cli(update_memory, point_id, text, metadata, collection,
+             merge_metadata=merge_metadata, json_mode=json_output)
 
 
 @app.command()
@@ -145,18 +168,21 @@ def patch(
     set: str = typer.Option("{}", "--set", help="Metadata keys to merge (JSON)."),
     unset: list[str] = typer.Option([], "--unset", help="Metadata key to remove (repeatable)."),
     collection: str = typer.Option("", help="Collection holding the point."),
+    json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
 ) -> None:
     """Patch metadata without re-embedding (no embedding call)."""
-    _emit(_guard(patch_metadata(point_id, set, list(unset), collection)))
+    _run_cli(patch_metadata, point_id, set, list(unset), collection,
+             json_mode=json_output)
 
 
 @app.command()
 def delete(
     point_id: str = typer.Argument(..., help="ID of the memory to delete."),
     collection: str = typer.Option("", help="Collection holding the point."),
+    json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
 ) -> None:
     """Delete a stored memory (point) by ID."""
-    _emit(_guard(delete_memory(point_id, collection)))
+    _run_cli(delete_memory, point_id, collection, json_mode=json_output)
 
 
 @app.command()
@@ -194,7 +220,8 @@ def migrate(
                 break
         typer.echo(f"dry-run: {legacy}/{total} points in {name!r} would be migrated (nothing written)")
         return
-    _emit(_guard(_fmt_summary(migrate_collection(name, assume_model=assume_model))))
+    _run_cli(_run_safe, _fmt_summary, migrate_collection, name,
+             assume_model=assume_model)
 
 
 def _fmt_summary(summary: dict) -> str:
@@ -211,7 +238,7 @@ def archive(
 ) -> None:
     """Archive memories (hidden from default search; kept for audit)."""
     ids = [s.strip() for s in point_ids.split(",") if s.strip()]
-    _emit(_guard(set_status(ids, "archived", collection)))
+    _run_cli(set_status, ids, "archived", collection)
 
 
 @app.command(name="unarchive")
@@ -221,7 +248,7 @@ def unarchive_cmd(
 ) -> None:
     """Unarchive memories (return them to active)."""
     ids = [s.strip() for s in point_ids.split(",") if s.strip()]
-    _emit(_guard(set_status(ids, "active", collection)))
+    _run_cli(set_status, ids, "active", collection)
 
 
 @app.command()
@@ -234,8 +261,8 @@ def reembed(
     """Re-embed a collection into a new one with the current model (VM model change)."""
     from .reembed import reembed_collection
 
-    _emit(_guard(_fmt_reembed(reembed_collection(collection, to, EMBED_MODEL,
-                                                 batch_size=batch, resume=resume))))
+    _run_cli(_run_safe, _fmt_reembed, reembed_collection, collection, to,
+             EMBED_MODEL, batch_size=batch, resume=resume)
 
 
 def _fmt_reembed(s: dict) -> str:
@@ -246,10 +273,15 @@ def _fmt_reembed(s: dict) -> str:
     )
 
 
+def _run_safe(fmt, op, *args, **kwargs) -> str:
+    """Format the summary of an op that must not raise past the CLI boundary."""
+    return fmt(op(*args, **kwargs))
+
+
 @app.command(name="list-collections")
 def list_collections_cmd() -> None:
     """List all collections currently present in Qdrant."""
-    typer.echo(list_collections())
+    _run_cli(list_collections)
 
 
 @app.callback()
