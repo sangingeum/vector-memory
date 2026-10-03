@@ -261,12 +261,25 @@ def set_status(point_ids: list[str], status: str, collection: str = "") -> str:
     fields.update(_payload.system_fields_for_update({}, None))
     if status == _payload.STATUS_ACTIVE:
         # Unarchive clears the lifecycle marker entirely (missing = active).
+        # A stale _superseded_by link is cleared with it, so an unarchived
+        # (formerly superseded) point re-enters active search without a
+        # dangling replacement link.
+        keys = [_payload.STATUS]
+        old_status = _status_of(name, point_ids)
+        if any(s == _payload.STATUS_SUPERSEDED for s in old_status):
+            keys.append(_payload.SUPERSEDED_BY)
         _store.qdrant.delete_payload(
-            collection_name=name, keys=[_payload.STATUS], points=point_ids, wait=True
+            collection_name=name, keys=keys, points=point_ids, wait=True
         )
     else:
         _store.qdrant.set_payload(collection_name=name, payload=fields, points=point_ids, wait=True)
     return f"Status set to {status} for {len(point_ids)} point(s) in {name!r}"
+
+
+def _status_of(collection_name: str, point_ids: list[str]) -> list[str]:
+    existing = _store.qdrant.retrieve(collection_name=collection_name, ids=point_ids, with_payload=True)
+    by_id = {str(r.id): r.payload or {} for r in existing}
+    return [by_id.get(pid, {}).get(_payload.STATUS) for pid in point_ids]
 
 
 def _with_lenient_warning(result: str) -> str:

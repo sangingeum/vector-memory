@@ -6,7 +6,7 @@ from typing import Any
 
 from . import store as _store
 from .browse import _resolve, _scroll_all
-from .errors import ArgumentError
+from .errors import ArgumentError, NotFoundError
 from .filters import build_filter, merge_convenience
 
 
@@ -56,6 +56,6 @@ def delete_collection(name: str, confirm: str = "", default_collection: str = ""
             f"refusing to delete the configured default collection {name!r}; "
             "pass --i-know-this-is-default if you are certain")
     if not _store.qdrant.collection_exists(name):
-        raise KeyError(f"collection {name!r} does not exist")
+        raise NotFoundError(f"collection {name!r} does not exist")
     _store.qdrant.delete_collection(name)
     return f"Deleted collection {name!r}"

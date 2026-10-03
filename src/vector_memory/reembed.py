@@ -26,15 +26,18 @@ def force_model_mismatch() -> bool:
 def check_collection_model(collection_name: str, configured_model: str) -> None:
     """Compare the collection's recorded ``_embed_model`` with the configured one.
 
-    Scans one batch of points for any known ``_embed_model`` value; raises
-    :class:`ConfigError` on a mismatch. Points without the field (legacy or
-    not yet migrated) are ignored.
+    Fetches ONE point filtered on ``_embed_model`` existing (per plan VM-06:
+    legacy points without the field never mask a recorded model). Raises
+    :class:`ConfigError` on a mismatch.
     """
     if force_model_mismatch() or not configured_model:
         return
     try:
+        from qdrant_client.models import Filter, IsEmptyCondition
+
+        flt = Filter(must_not=[IsEmptyCondition(is_empty={"key": _payload.EMBED_MODEL})])
         batch, _ = _store.qdrant.scroll(
-            collection_name=collection_name, limit=16,
+            collection_name=collection_name, scroll_filter=flt, limit=1,
             with_payload=True, with_vectors=False,
         )
     except Exception:

@@ -13,6 +13,7 @@ from typing import Any
 
 from . import payload as _payload
 from . import store as _store
+from .errors import NotFoundError
 from .validation import content_hash
 
 
@@ -28,7 +29,7 @@ def migrate_collection(
     ``_created_ts`` are skipped on re-run.
     """
     if not _store.qdrant.collection_exists(collection_name):
-        raise KeyError(f"collection {collection_name!r} does not exist")
+        raise NotFoundError(f"collection {collection_name!r} does not exist")
     _payload.ensure_payload_indexes(_store.qdrant, collection_name)
 
     scanned = 0

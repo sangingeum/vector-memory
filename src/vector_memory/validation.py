@@ -140,7 +140,11 @@ def parse_metadata_strict(
         return {}
     if isinstance(metadata, dict):
         return validate_metadata(metadata, origin=origin)
-    if not isinstance(metadata, str) or not metadata.strip():
+    if not isinstance(metadata, str):
+        raise ArgumentError(
+            f"{origin} must be a JSON object (dict) or a JSON string "
+            f"(got {type(metadata).__name__})")
+    if not metadata.strip():
         return {}
     try:
         parsed = json.loads(metadata)
