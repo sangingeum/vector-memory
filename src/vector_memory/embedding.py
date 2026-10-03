@@ -79,15 +79,17 @@ def embed_many(texts: list[str]) -> list[list[float]]:
     out: list[list[float]] = []
     for start in range(0, len(texts), EMBED_BATCH):
         chunk = texts[start : start + EMBED_BATCH]
-        result = _retry(lambda chunk=chunk: ollama_client.embed(model=EMBED_MODEL, input=chunk), "embed-many")
         try:
+            result = _retry(lambda chunk=chunk: ollama_client.embed(model=EMBED_MODEL, input=chunk), "embed-many")
             out.extend(result["embeddings"])
+            continue
         except (AttributeError, KeyError, TypeError):
             # Legacy fallback: one call per text.
-            out.extend(
-                _retry(lambda t=t: ollama_client.embeddings(model=EMBED_MODEL, prompt=t)["embedding"], "embed-one")
-                for t in chunk
-            )
+            pass
+        out.extend(
+            _retry(lambda t=t: ollama_client.embeddings(model=EMBED_MODEL, prompt=t)["embedding"], "embed-one")
+            for t in chunk
+        )
     return out
 
 
