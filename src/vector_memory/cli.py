@@ -7,8 +7,6 @@ process: no daemon, no server RPC. All diagnostics go to stderr only when
 
 from __future__ import annotations
 
-from typing import Any
-
 import typer
 
 from .core import (
@@ -27,6 +25,29 @@ app = typer.Typer(
 )
 
 
+def _guard(result_or_exc: str | BaseException) -> str:
+    """Normalize a core-op outcome: exceptions become ``ErrorType: ...`` text."""
+    from .errors import format_error
+
+    if isinstance(result_or_exc, BaseException):
+        return format_error(result_or_exc)
+    return result_or_exc
+
+
+def _emit(result: str) -> None:
+    """Print a core-op result, honoring the stdout/stderr contract.
+
+    ``ErrorType: ...`` lines go to stderr with exit code 1; warnings stay on
+    the result string (stderr in text mode is reserved for diagnostics).
+    """
+    if result.startswith(("ArgumentError:", "ConfigError:", "NotFoundError:",
+                          "ConflictError:", "SensitiveContentError:",
+                          "BackendError:", "InternalError:")):
+        typer.echo(result, err=True)
+        raise typer.Exit(1)
+    typer.echo(result)
+
+
 @app.command()
 def save(
     text: str = typer.Argument(..., help="Text to embed and store."),
@@ -37,7 +58,7 @@ def save(
     collection: str = typer.Option("", help="Target collection (created if missing)."),
 ) -> None:
     """Save a document/scenario outcome into the vector DB."""
-    typer.echo(save_memory(text, metadata, collection, project=project, type=type, tags=list(tags)))
+    typer.echo(_guard(save_memory(text, metadata, collection, project=project, type=type, tags=list(tags))))
 
 
 @app.command()
@@ -50,10 +71,12 @@ def save_many(
     collection: str = typer.Option("", help="Target collection (created if missing)."),
 ) -> None:
     """Save multiple documents in one batch (single embed + upsert)."""
-    typer.echo(
-        save_memories(
-            list(texts), metadata, collection,
-            project=project, type=type, tags=list(tags),
+    _emit(
+        _guard(
+            save_memories(
+                list(texts), metadata, collection,
+                project=project, type=type, tags=list(tags),
+            )
         )
     )
 
@@ -67,7 +90,7 @@ def search(
     project: str = typer.Option("", help="Project-scoped memory (payload project= match)."),
 ) -> None:
     """Search stored documents/scenarios semantically similar to a query."""
-    typer.echo(search_memory(query, limit, filter, collection, project))
+    _emit(_guard(search_memory(query, limit, filter, collection, project)))
 
 
 @app.command()
@@ -78,7 +101,7 @@ def update(
     collection: str = typer.Option("", help="Collection holding the point."),
 ) -> None:
     """Update an existing memory in place under the same ID."""
-    typer.echo(update_memory(point_id, text, metadata, collection))
+    _emit(_guard(update_memory(point_id, text, metadata, collection)))
 
 
 @app.command()
@@ -87,7 +110,7 @@ def delete(
     collection: str = typer.Option("", help="Collection holding the point."),
 ) -> None:
     """Delete a stored memory (point) by ID."""
-    typer.echo(delete_memory(point_id, collection))
+    _emit(_guard(delete_memory(point_id, collection)))
 
 
 @app.command(name="list-collections")

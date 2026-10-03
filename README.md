@@ -43,9 +43,12 @@ fast with a clear error instead of silently storing corrupt vectors — fix it
 by deleting and recreating the collection, or by switching back to the
 original embedding model.
 
-Invalid `metadata`/`filter` JSON is not silently ignored: the tool's return
-string includes a warning line (e.g.
-`Warning: failed to parse metadata JSON; saved with empty metadata`).
+Invalid `metadata`/`filter` JSON is rejected by default: the operation fails
+with a single stderr line (`ArgumentError: metadata is not valid JSON (position N)`)
+and nothing is written. Metadata keys must be lowercase identifiers
+(`^[a-z][a-z0-9_]{0,63}$`, no leading `_`), and values must be JSON scalars or
+lists of scalars. The legacy warn-and-continue behavior is available via
+`--lenient` on save commands or `VM_LENIENT=1` in the environment.
 
 ## Requirements
 
@@ -120,8 +123,9 @@ creates two points (dedupe is the caller's job; use `update` to modify in
 place). `update --metadata` replaces the whole payload metadata; pass only
 `--text` to keep it. Search hits include ID + score + metadata + full text.
 `--project`-scoped searches only see memories saved with a `project` metadata
-field. Invalid metadata/filter JSON continues with a `Warning:` line — check
-for it.
+field. Invalid metadata/filter JSON fails the command (one stderr
+`ArgumentError: ...` line, nothing written); `--lenient` / `VM_LENIENT=1`
+restores the old warn-and-continue behavior.
 
 ### MCP client config
 

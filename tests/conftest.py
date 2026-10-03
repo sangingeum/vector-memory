@@ -147,7 +147,7 @@ _fake_qdrant = FakeQdrant()
 _emb.ollama_client = _fake_embedder
 _store.qdrant = _fake_qdrant
 
-import mcp_server  # noqa: E402
+import mcp_server
 
 # server.py bound the store client via `from .store import qdrant`; point the
 # same name at the fake so tool functions use the in-memory store too.

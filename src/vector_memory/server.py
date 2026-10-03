@@ -30,7 +30,7 @@ logger = logging.getLogger("vector-memory")
 mcp = FastMCP("Agent Vector Memory")
 
 # Exposed for tests, which rebind the client on this module and on .store.
-qdrant = qdrant
+qdrant = qdrant  # noqa: PLW0127 - re-export for test monkeypatching
 
 
 @mcp.tool()
@@ -44,7 +44,7 @@ def save_memory(text: str, metadata: str | dict[str, Any] = "{}",
     collection is given, the memory is stored there (created automatically
     if missing; default: the server-configured collection).
     """
-    return _core.save_memory(text, metadata, collection)
+    return _core.call(_core.save_memory, text, metadata, collection)
 
 
 @mcp.tool()
@@ -55,7 +55,7 @@ def save_memories(texts: list[str], metadata: str | dict[str, Any] = "{}",
     All texts are embedded in a single Ollama call and upserted together.
     metadata (JSON string or object) is applied to every document.
     """
-    return _core.save_memories(texts, metadata, collection)
+    return _core.call(_core.save_memories, texts, metadata, collection)
 
 
 @mcp.tool()
@@ -65,7 +65,7 @@ def search_memory(query: str, limit: int = 3, filter: str | dict[str, Any] = "",
     to a query. filter is an optional payload filter (JSON string or object).
     project (optional) ANDs an exact-match condition on the payload 'project'
     field for project-scoped memory."""
-    return _core.search_memory(query, limit, filter, collection, project)
+    return _core.call(_core.search_memory, query, limit, filter, collection, project)
 
 
 @mcp.tool()
@@ -77,19 +77,19 @@ def update_memory(point_id: str, text: str | None = None,
     Re-embeds and overwrites when text is given; metadata-only updates keep
     the existing text and vector; both empty is an error.
     """
-    return _core.update_memory(point_id, text, metadata, collection)
+    return _core.call(_core.update_memory, point_id, text, metadata, collection)
 
 
 @mcp.tool()
 def delete_memory(point_id: str, collection: str = "") -> str:
     """Delete a stored memory (point) from the vector DB by ID."""
-    return _core.delete_memory(point_id, collection)
+    return _core.call(_core.delete_memory, point_id, collection)
 
 
 @mcp.tool()
 def list_collections() -> str:
     """List all collections currently present in Qdrant."""
-    return _core.list_collections()
+    return _core.call(_core.list_collections)
 
 
 def main() -> None:

@@ -7,7 +7,13 @@ explicit options win over same-key values given via --metadata JSON.
 from __future__ import annotations
 
 import mcp_server as s
-from tests.test_server import env  # reuse the fake-clients fixture
+
+# The `env` fixture (fake clients) lives in tests/test_server.py and is
+# resolved by pytest; importing it by name triggers F811 on the parameter,
+# so we register it via the module object instead.
+from tests import test_server as _ts
+
+env = _ts.env
 
 
 def _stored_payloads(fq) -> list[dict]:

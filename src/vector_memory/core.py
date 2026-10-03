@@ -15,15 +15,28 @@ from typing import Any
 
 from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
-from .embedding import EMBED_MODEL, OLLAMA_URL, embed, embed_many
 from . import store as _store
+from .embedding import EMBED_MODEL, embed, embed_many
+from .errors import ArgumentError, NotFoundError, format_error
 from .store import (
     COLLECTION_NAME,
-    QDRANT_URL,
     build_filter,
     ensure_collection_for,
     parse_metadata,
 )
+from .validation import validate_text
+
+
+def call(op, *args, **kwargs) -> str:
+    """Run a core op for an MCP tool; failures become ``ErrorType: ...`` text.
+
+    The FastMCP wrapper converts a raised exception into a tool error
+    (``isError``) whose content is this single-line text.
+    """
+    try:
+        return op(*args, **kwargs)
+    except Exception as exc:  # boundary error contract
+        return format_error(exc)
 
 
 def _append_warning(result: str, warning: str | None) -> str:
@@ -62,47 +75,58 @@ def _apply_explicit_metadata(
 def save_memory(text: str, metadata: str | dict[str, Any] = "{}",
                 collection: str = "", project: str = "", type: str = "",
                 tags: list[str] | None = None) -> str:
-    """Save a document/scenario outcome into the vector DB."""
-    meta_dict, warning = parse_metadata(metadata)
+    """Save a document/scenario outcome into the vector DB.
+
+    Raises :class:`ArgumentError` on invalid input (nothing written).
+    """
+    stripped = validate_text(text)
+    meta_dict = parse_metadata(metadata)
     _apply_explicit_metadata(meta_dict, project=project, type=type, tags=tags)
     try:
         name = _apply_collection(collection)
-        vector = embed(text)
+        vector = embed(stripped)
         point_id = str(uuid.uuid4())
-        meta_dict["text"] = text
+        meta_dict["text"] = stripped
         _store.qdrant.upsert(
             collection_name=name,
             points=[PointStruct(id=point_id, vector=vector, payload=meta_dict)],
+            wait=True,
         )
-        return _append_warning(f"Memory saved (ID: {point_id}, collection: {name})", warning)
+        return _with_lenient_warning(f"Memory saved (ID: {point_id}, collection: {name})")
     except Exception as exc:
-        return _append_warning(f"Save failed: {exc}", warning)
+        raise _backend_or_internal(exc) from exc
+
+
+def _with_lenient_warning(result: str) -> str:
+    """Legacy contract: append a pending lenient-parse warning, if any."""
+    from .store import pop_last_warning
+
+    return _append_warning(result, pop_last_warning())
 
 
 def save_memories(texts: list[str], metadata: str | dict[str, Any] = "{}",
                   collection: str = "", project: str = "", type: str = "",
                   tags: list[str] | None = None) -> str:
     """Save multiple documents in one batch (single embed + upsert round trip)."""
-    meta_dict, warning = parse_metadata(metadata)
+    meta_dict = parse_metadata(metadata)
     _apply_explicit_metadata(meta_dict, project=project, type=type, tags=tags)
     if not texts:
-        return _append_warning("No texts to save.", warning)
-    try:
-        name = _apply_collection(collection)
-        vectors = embed_many(texts)
-        points = []
-        for text, vector in zip(texts, vectors, strict=True):
-            payload = dict(meta_dict)
-            payload["text"] = text
-            points.append(PointStruct(id=str(uuid.uuid4()), vector=vector, payload=payload))
-        _store.qdrant.upsert(collection_name=name, points=points)
-        ids = [str(p.id) for p in points]
-        return _append_warning(
-            f"Saved {len(points)} memories (collection: {name}, IDs: {', '.join(ids)})",
-            warning,
-        )
-    except Exception as exc:
-        return _append_warning(f"Batch save failed: {exc}", warning)
+        raise ArgumentError("texts list is empty")
+    if not all(isinstance(t, str) for t in texts):
+        raise ArgumentError("texts must all be strings")
+    stripped = [validate_text(t, where=f"texts[{i}]") for i, t in enumerate(texts)]
+    name = _apply_collection(collection)
+    vectors = embed_many(stripped)
+    points = []
+    for text, vector in zip(stripped, vectors, strict=True):
+        payload = dict(meta_dict)
+        payload["text"] = text
+        points.append(PointStruct(id=str(uuid.uuid4()), vector=vector, payload=payload))
+    _store.qdrant.upsert(collection_name=name, points=points, wait=True)
+    ids = [str(p.id) for p in points]
+    return _with_lenient_warning(
+        f"Saved {len(points)} memories (collection: {name}, IDs: {', '.join(ids)})"
+    )
 
 
 def search_memory(query: str, limit: int = 3, filter: str | dict[str, Any] = "",
@@ -126,7 +150,7 @@ def search_memory(query: str, limit: int = 3, filter: str | dict[str, Any] = "",
         )
         hits = response.points
     except Exception as exc:
-        return _append_warning(f"Search failed: {exc}", warning)
+        raise _backend_or_internal(exc) from exc
 
     if not hits:
         return _append_warning("No matching memories found.", warning)
@@ -144,6 +168,15 @@ def search_memory(query: str, limit: int = 3, filter: str | dict[str, Any] = "",
     return _append_warning("\n".join(out), warning)
 
 
+def _backend_or_internal(exc: Exception) -> Exception:
+    """Classify an exception from the Qdrant/embedding layer."""
+    from .errors import BackendError
+
+    if isinstance(exc, (ConnectionError, TimeoutError, OSError)):
+        return BackendError(str(exc))
+    return exc
+
+
 def _has_metadata(metadata: str | dict[str, Any]) -> bool:
     """True if metadata carries content (non-empty dict or non-blank string)."""
     if isinstance(metadata, dict):
@@ -155,52 +188,47 @@ def update_memory(point_id: str, text: str | None = None,
                   metadata: str | dict[str, Any] = "",
                   collection: str = "") -> str:
     """Update an existing memory (point) in place under the same ID."""
-    try:
-        if (text is None or not text.strip()) and not _has_metadata(metadata):
-            return "Error: nothing to update — provide new text, new metadata, or both."
-        name = collection if collection and collection.strip() else COLLECTION_NAME
-        if not _store.qdrant.collection_exists(name):
-            return f"Update failed: collection {name!r} does not exist."
-        existing = _store.qdrant.retrieve(collection_name=name, ids=[point_id], with_payload=True)
-        if not existing:
-            return f"Update failed: point_id {point_id} not found."
-        point = existing[0]
-        if _has_metadata(metadata):
-            meta_dict, warning = parse_metadata(metadata)
-            payload: dict[str, Any] = dict(meta_dict)
-        else:
-            warning = None
-            payload = dict(point.payload or {})
-        if text is None or not text.strip():
-            # Metadata-only update: keep the existing text and vector, replace
-            # the payload without re-embedding.
-            payload["text"] = (point.payload or {}).get("text", "") if _has_metadata(metadata) else payload["text"]
-            _store.qdrant.set_payload(collection_name=name, payload=payload, points=[point_id])
-            return _append_warning(f"Memory updated (ID: {point_id}, collection: {name})", warning)
-        payload["text"] = text
-        vector = embed(text)
-        _store.qdrant.upsert(
-            collection_name=name,
-            points=[PointStruct(id=point_id, vector=vector, payload=payload)],
-        )
-        return _append_warning(f"Memory updated (ID: {point_id}, collection: {name})", warning)
-    except Exception as exc:
-        return f"Update failed: {exc}"
+    if (text is None or not text.strip()) and not _has_metadata(metadata):
+        raise ArgumentError("nothing to update — provide new text, new metadata, or both")
+    name = collection if collection and collection.strip() else COLLECTION_NAME
+    if not _store.qdrant.collection_exists(name):
+        raise NotFoundError(f"collection {name!r} does not exist")
+    existing = _store.qdrant.retrieve(collection_name=name, ids=[point_id], with_payload=True)
+    if not existing:
+        raise NotFoundError(f"point_id {point_id} not found")
+    point = existing[0]
+    if _has_metadata(metadata):
+        meta_dict = parse_metadata(metadata)
+        payload: dict[str, Any] = dict(meta_dict)
+    else:
+        payload = dict(point.payload or {})
+    if text is None or not text.strip():
+        # Metadata-only update: keep the existing text and vector, replace
+        # the payload without re-embedding.
+        payload["text"] = (point.payload or {}).get("text", "") if _has_metadata(metadata) else payload["text"]
+        _store.qdrant.set_payload(collection_name=name, payload=payload, points=[point_id])
+        return _with_lenient_warning(f"Memory updated (ID: {point_id}, collection: {name})")
+    stripped = validate_text(text)
+    payload["text"] = stripped
+    vector = embed(stripped)
+    _store.qdrant.upsert(
+        collection_name=name,
+        points=[PointStruct(id=point_id, vector=vector, payload=payload)],
+        wait=True,
+    )
+    return _with_lenient_warning(f"Memory updated (ID: {point_id}, collection: {name})")
 
 
 def delete_memory(point_id: str, collection: str = "") -> str:
     """Delete a stored memory (point) by ID."""
-    try:
-        name = collection if collection and collection.strip() else COLLECTION_NAME
-        if not _store.qdrant.collection_exists(name):
-            return f"Delete failed: collection {name!r} does not exist."
-        existing = _store.qdrant.retrieve(collection_name=name, ids=[point_id], with_payload=False)
-        if not existing:
-            return f"Error: point_id {point_id} not found."
-        _store.qdrant.delete(collection_name=name, points_selector=[point_id])
-        return f"Memory deleted (ID: {point_id}, collection: {name})"
-    except Exception as exc:
-        return f"Delete failed: {exc}"
+    name = collection if collection and collection.strip() else COLLECTION_NAME
+    if not _store.qdrant.collection_exists(name):
+        raise NotFoundError(f"collection {name!r} does not exist")
+    existing = _store.qdrant.retrieve(collection_name=name, ids=[point_id], with_payload=False)
+    if not existing:
+        raise NotFoundError(f"point_id {point_id} not found")
+    _store.qdrant.delete(collection_name=name, points_selector=[point_id], wait=True)
+    return f"Memory deleted (ID: {point_id}, collection: {name})"
 
 
 def list_collections() -> str:

@@ -1,0 +1,5 @@
+# Ruff config for vector-memory.
+# B008: typer's idiom REQUIRES Option()/Argument() calls in defaults.
+# BLE001: core ops intentionally catch broad exceptions at the boundary.
+[lint]
+ignore = ["B008", "BLE001"]

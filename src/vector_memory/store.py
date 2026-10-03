@@ -55,7 +55,7 @@ def ensure_collection_for(
                 collection_name=collection_name,
                 vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             # Multi-process race: another server process created the
             # collection between our exists-check and create call.
             # Re-verify dimension safety on the now-existing collection.
@@ -113,28 +113,51 @@ WARN_INVALID_METADATA = "Warning: failed to parse metadata JSON; saved with empt
 WARN_INVALID_METADATA_TYPE = "Warning: metadata is not a JSON object (dict); saved with empty metadata"
 WARN_INVALID_FILTER = "Warning: failed to parse filter JSON; searching without a filter"
 
+# Lenient-mode warning slot: legacy behavior appends the warning to the tool's
+# result string. Strict mode never touches it. Single-threaded one-shot
+# processes make a module-level slot safe.
+_last_parse_warning: str | None = None
 
-def parse_metadata(metadata: str | dict[str, Any] | None) -> tuple[dict[str, Any], str | None]:
+
+def _set_last_warning(message: str | None) -> None:
+    global _last_parse_warning
+    _last_parse_warning = message
+
+
+def pop_last_warning() -> str | None:
+    """Return and clear the last lenient-parse warning (legacy result-string contract)."""
+    global _last_parse_warning
+    message, _last_parse_warning = _last_parse_warning, None
+    return message
+
+
+def parse_metadata(metadata: str | dict[str, Any] | None) -> dict[str, Any]:
     """Parse metadata, tolerating both a JSON string and an already-parsed dict.
 
-    Agents frequently send metadata as a JSON object instead of a string;
-    both are accepted. Returns ``(dict, warning)``; invalid input yields an
-    empty dict plus a warning line to surface in the tool's return value.
+    Validation and strictness live in :mod:`vector_memory.validation`. In
+    strict mode (default) invalid input raises :class:`ArgumentError`;
+    lenient mode returns an empty dict and emits a ``Warning``.
     """
+    from .validation import lenient, parse_metadata_strict
+
+    if not lenient():
+        return parse_metadata_strict(metadata)
     if metadata is None:
-        return {}, None
+        return {}
     if isinstance(metadata, dict):
-        return dict(metadata), None
+        return dict(metadata)
     if not isinstance(metadata, str) or not metadata.strip():
-        return {}, None
+        return {}
     try:
         parsed = json.loads(metadata)
     except json.JSONDecodeError:
         logger.warning("Invalid metadata JSON %r — storing empty metadata", metadata)
-        return {}, WARN_INVALID_METADATA
+        _set_last_warning(WARN_INVALID_METADATA)
+        return {}
     if not isinstance(parsed, dict):
-        return {}, WARN_INVALID_METADATA_TYPE
-    return parsed, None
+        _set_last_warning(WARN_INVALID_METADATA_TYPE)
+        return {}
+    return parsed
 
 
 def build_filter(filter_json: str | dict[str, Any] | None) -> tuple[Filter | None, str | None]:

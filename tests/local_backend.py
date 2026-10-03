@@ -36,12 +36,12 @@ class HashEmbedder:
         norm = sum(x * x for x in out) ** 0.5 or 1.0
         return [x / norm for x in out]
 
-    def embed(self, model=None, input=None, **kw):  # noqa: A002 - API shape
+    def embed(self, model=None, input=None, **kw):
         items: list[str] = list(input) if isinstance(input, list) else [str(input)]
         self.calls.append(items)
         return {"embeddings": [self._vec(t) for t in items]}
 
-    def embeddings(self, model=None, prompt=None, **kw):  # noqa: A002
+    def embeddings(self, model=None, prompt=None, **kw):
         return {"embedding": self._vec(str(prompt))}
 
 

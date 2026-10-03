@@ -37,6 +37,7 @@ vector-memory list-collections
   (default `agent_scenarios`).
 - Each invocation pays one embedding round trip (~0.8 s GPU / ~6 s CPU,
   8B model); `save-many` amortizes it.
-- Invalid metadata/filter JSON: operation continues with empty metadata /
-  unfiltered search and a `Warning:` line in stdout — check for it.
+- Invalid metadata/filter JSON: the operation FAILS with one
+  `ArgumentError: ...` stderr line and nothing is written. Pass `--lenient`
+  (or set `VM_LENIENT=1`) to restore the legacy warn-and-continue behavior.
 - Not for: codebase indexing (use `code-indexer`), secrets, exact-match lookup.

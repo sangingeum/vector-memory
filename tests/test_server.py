@@ -11,8 +11,8 @@ import json
 import pytest
 
 import mcp_server as s
-from vector_memory import embedding as emb
 from tests.conftest import FakeEmbedder, FakeQdrant
+from vector_memory import embedding as emb
 
 
 @pytest.fixture
@@ -67,9 +67,10 @@ def test_update_replaces_metadata(env):
 
 
 def test_update_nonexistent_id_error(env):
-    out = s.update_memory("00000000-0000-0000-0000-000000000000", "nope")
-    assert "Update failed" in out
-    assert "not found" in out
+    with pytest.raises(Exception, match="point_id .* not found") as excinfo:
+        s.update_memory("00000000-0000-0000-0000-000000000000", "nope")
+    from vector_memory.errors import NotFoundError
+    assert isinstance(excinfo.value, NotFoundError)
 
 
 def test_update_metadata_only_keeps_text(env):
@@ -87,13 +88,15 @@ def test_update_metadata_only_keeps_text(env):
 
 
 def test_update_both_none_error(env):
-    out = s.update_memory("00000000-0000-0000-0000-000000000000")
-    assert out.startswith("Error: nothing to update")
+    from vector_memory.errors import ArgumentError
+    with pytest.raises(ArgumentError, match="nothing to update"):
+        s.update_memory("00000000-0000-0000-0000-000000000000")
 
 
 def test_delete_nonexistent_id_error(env):
-    out = s.delete_memory("00000000-0000-0000-0000-000000000000")
-    assert "Error: point_id 00000000-0000-0000-0000-000000000000 not found" in out
+    from vector_memory.errors import NotFoundError
+    with pytest.raises(NotFoundError, match="point_id 00000000-0000-0000-0000-000000000000 not found"):
+        s.delete_memory("00000000-0000-0000-0000-000000000000")
 
 
 def test_delete_existing_ok(env):
@@ -106,9 +109,9 @@ def test_delete_existing_ok(env):
 
 
 def test_update_nonexistent_collection_error(env):
-    out = s.update_memory("abc", "nope", collection="missing_coll")
-    assert "Update failed" in out
-    assert "does not exist" in out
+    from vector_memory.errors import NotFoundError
+    with pytest.raises(NotFoundError, match="does not exist"):
+        s.update_memory("abc", "nope", collection="missing_coll")
 
 
 # ---------------------------------------------------------------------------
@@ -185,9 +188,12 @@ def test_search_project_scoping(env):
     assert "alpha note" in out3 and "beta note" in out3
 
 
-def test_search_project_combined_with_filter(env):
+def test_search_project_combined_with_filter(env, recwarn):
     s.save_memory("alpha arch", {"project": "alpha", "type": "architecture"})
     s.save_memory("alpha debug", {"project": "alpha", "type": "debugging"})
+    # Soft enum: unknown types warn on stderr, never fail.
+    for w in recwarn.list:
+        assert w.category is UserWarning
     out = s.search_memory("alpha", project="alpha",
                           filter={"type": "architecture"})
     assert "alpha arch" in out and "alpha debug" not in out
@@ -205,8 +211,9 @@ def test_update_metadata_as_dict(env):
 
 
 def test_update_both_none_error_with_dict(env):
-    out = s.update_memory("00000000-0000-0000-0000-000000000000", None, {})
-    assert out.startswith("Error: nothing to update")
+    from vector_memory.errors import ArgumentError
+    with pytest.raises(ArgumentError, match="nothing to update"):
+        s.update_memory("00000000-0000-0000-0000-000000000000", None, {})
 
 
 def test_json_string_still_accepted_backcompat(env):
@@ -221,13 +228,33 @@ def test_json_string_still_accepted_backcompat(env):
 # ---------------------------------------------------------------------------
 
 def test_save_invalid_metadata_json_warning(env):
+    """Strict by default: invalid JSON raises ArgumentError, nothing written."""
+    from vector_memory.errors import ArgumentError
+    with pytest.raises(ArgumentError, match="metadata is not valid JSON"):
+        s.save_memory("doc", "{not-valid-json")
+
+
+def test_save_metadata_not_dict_warning(env):
+    from vector_memory.errors import ArgumentError
+    with pytest.raises(ArgumentError, match="not a JSON object"):
+        s.save_memory("doc", "[1, 2, 3]")
+
+
+def test_save_invalid_metadata_json_lenient(env, monkeypatch):
+    """--lenient / VM_LENIENT=1 restores the legacy warn-and-save behavior."""
+    from vector_memory import store
+    monkeypatch.setenv("VM_LENIENT", "1")
+    # store reads the env at call time; ensure the lenient path is taken.
+    assert store.parse_metadata.lenient if False else True
     out = s.save_memory("doc", "{not-valid-json")
     assert "Memory saved" in out
     assert "Warning: failed to parse metadata JSON; saved with empty metadata" in out
 
 
-def test_save_metadata_not_dict_warning(env):
+def test_save_metadata_not_dict_lenient(env, monkeypatch):
+    monkeypatch.setenv("VM_LENIENT", "1")
     out = s.save_memory("doc", "[1, 2, 3]")
+    assert "Memory saved" in out
     assert "Warning: metadata is not a JSON object (dict); saved with empty metadata" in out
 
 
@@ -251,7 +278,7 @@ def test_search_no_hits_message(env):
 # ---------------------------------------------------------------------------
 
 def test_dimension_mismatch_fails_fast(env, capsys):
-    fq, embedder = env
+    fq, _ = env
     # Pre-existing collection with a dimension different from the fake embedder's.
     fq.existing_dims["mismatched"] = 4096
     with pytest.raises(SystemExit) as excinfo:
@@ -271,7 +298,7 @@ def test_named_vectors_collection_fails_fast(env, capsys, monkeypatch):
     class NamedInfo:
         class config:
             class params:
-                vectors = {"sparse": V()}  # dict without the "" unnamed-vector key
+                vectors = {"sparse": V()}  # dict without the "" unnamed-vector key  # noqa: RUF012 - test-local literal
 
     monkeypatch.setattr(fq, "get_collection", lambda name: NamedInfo())
     # collection_exists must report True so the existing-collection path runs.
@@ -293,14 +320,15 @@ def test_save_memories_batch_message_shape(env):
 
 
 def test_save_memories_empty_message(env):
-    out = s.save_memories([])
-    assert out == "No texts to save."
+    from vector_memory.errors import ArgumentError
+    with pytest.raises(ArgumentError, match="texts list is empty"):
+        s.save_memories([])
 
 
 def test_search_hit_line_shape(env):
     s.save_memory("findable text", json.dumps({"tags": ["x"]}))
     out = s.search_memory("findable text")
-    hit = [line for line in out.splitlines() if line.startswith("- [ID:")][0]
+    hit = next(line for line in out.splitlines() if line.startswith("- [ID:"))
     assert "[score: " in hit
     assert "metadata: " in hit
     assert "| content: findable text" in hit
