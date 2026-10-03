@@ -14,7 +14,7 @@ import time
 import uuid
 from typing import Any
 
-from qdrant_client.models import PointStruct
+from qdrant_client.models import Filter, PointStruct
 
 from . import dedupe as _dedupe
 from . import payload as _payload
@@ -313,7 +313,8 @@ def search_memory(query: str, limit: int = 3, filter: str | dict[str, Any] = "",
                   mmr: float = 0.0,
                   brief: bool = False,
                   max_chars: int = 0,
-                  output_format: str = "text") -> str:
+                  output_format: str = "text",
+                  agent: str = "") -> str:
     """Search for stored documents/scenarios similar to a query.
 
     Superseded/archived memories are hidden by default (legacy points without
@@ -329,6 +330,25 @@ def search_memory(query: str, limit: int = 3, filter: str | dict[str, Any] = "",
 
     qdrant_filter = merge_convenience(qdrant_filter, project=project, type=type,
                                       tag=tag, source=source, since=since, before=before)
+    if agent:
+        from .filters import compile_filter
+
+        agent_flt = compile_filter({"_agent": agent})
+        if agent_flt is not None:
+            if qdrant_filter is None:
+                qdrant_filter = agent_flt
+            else:
+                agent_must = list(qdrant_filter.must or [])
+                agent_must.extend(agent_flt.must or [])
+                agent_must_not = list(qdrant_filter.must_not or [])
+                agent_must_not.extend(agent_flt.must_not or [])
+                agent_should = list(qdrant_filter.should or [])
+                agent_should.extend(agent_flt.should or [])
+                qdrant_filter = Filter(
+                    must=agent_must or None,
+                    must_not=agent_must_not or None,
+                    should=agent_should or None,
+                )
     if not include_inactive:
         qdrant_filter = _payload.active_filter(qdrant_filter)
     # Candidate fetch: over-sample for re-ranking/MMR (floor 25 for small limits).

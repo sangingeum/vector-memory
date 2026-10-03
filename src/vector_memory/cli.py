@@ -153,6 +153,7 @@ def search(
     brief: bool = typer.Option(False, "--brief", help="Truncate hit text (prefers summary)."),
     max_chars: int = typer.Option(0, "--max-chars", help="Per-hit char cap (0 = full text)."),
     output_format: str = typer.Option("text", "--format", help="text | compact"),
+    agent: str = typer.Option("", "--agent", help="Filter by author agent id (_agent)."),
     json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
 ) -> None:
     """Search stored documents/scenarios semantically similar to a query."""
@@ -161,7 +162,7 @@ def search(
              tag=list(tag), type=type_filter, source=source,
              min_score=min_score, recency_weight=recency_weight, mmr=mmr,
              brief=brief, max_chars=max_chars, output_format=output_format,
-             json_mode=json_output)
+             agent=agent, json_mode=json_output)
 
 
 @app.command()
