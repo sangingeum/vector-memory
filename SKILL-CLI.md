@@ -14,6 +14,9 @@ One-shot typer CLI over `vector_memory.core`. Binary: `vector-memory`; package
 ```bash
 uv run vector-memory <cmd>   # or installed console script
 vector-memory save "text" --project p --type decision --tags x [--collection C]
+# text is the POSITIONAL argument — there is NO --text flag on save
+# (solomon's round finding, 2026-09-30: --text is rejected; the positional arg works).
+# --text exists only on `update` (below).
 # equivalent long form: --metadata '{"project":"p","type":"decision","tags":["x"]}'
 vector-memory save-many "text A" "text B" --project p [--metadata '{...}']
 vector-memory search "db outage" [--limit 3] [--filter '{"tags":["x"]}'] [--project p] [--collection C]

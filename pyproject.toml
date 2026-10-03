@@ -28,3 +28,10 @@ build-backend = "uv_build"
 dev = [
     "pytest>=9.1.1",
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "live: tests that need the real Ollama/Qdrant backends (deselect with -m \"not live\")",
+]
+# Warn-clean bar: any warning becomes an error so regressions cannot hide.
+filterwarnings = ["error"]
