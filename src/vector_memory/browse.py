@@ -60,14 +60,19 @@ def get_memory(point_ids: list[str], collection: str = "", with_system: bool = F
 def list_memories(collection: str = "", filter: str | dict[str, Any] = "",
                   limit: int = 25, order_by: str = "",
                   project: str = "", include_inactive: bool = False,
-                  cursor: str = "") -> str:
+                  cursor: str = "", tag: list[str] | None = None,
+                  type: str = "", source: str = "",
+                  since: str = "", before: str = "") -> str:
     """Browse memories via scroll; deterministic order (created then id).
 
     ``cursor`` is the numeric offset from the previous page's next-cursor.
+    Convenience flags (tag/type/source/since/before) compile into the same
+    filter object.
     """
     name = _resolve(collection)
     flt, warning = build_filter(filter)
-    flt = merge_convenience(flt, project=project)
+    flt = merge_convenience(flt, project=project, tag=tag, type=type,
+                            source=source, since=since, before=before)
     if not include_inactive:
         flt = _payload.active_filter(flt)
     points = _scroll_all(name, flt, max_points=100000)
@@ -102,10 +107,13 @@ def _warn_append(result: str, warning: str | None) -> str:
 
 
 def count_memories(collection: str = "", filter: str | dict[str, Any] = "",
-                   project: str = "", include_inactive: bool = False) -> str:
+                   project: str = "", include_inactive: bool = False,
+                   tag: list[str] | None = None, type: str = "",
+                   source: str = "", since: str = "", before: str = "") -> str:
     name = _resolve(collection)
     flt, _ = build_filter(filter)
-    flt = merge_convenience(flt, project=project)
+    flt = merge_convenience(flt, project=project, tag=tag, type=type,
+                            source=source, since=since, before=before)
     if not include_inactive:
         flt = _payload.active_filter(flt)
     n = _store.qdrant.count(collection_name=name, count_filter=flt, exact=True).count

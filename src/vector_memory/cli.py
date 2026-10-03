@@ -94,6 +94,16 @@ def save(
     allow_sensitive: bool = typer.Option(
         False, "--allow-sensitive",
         help="Override the secret-detection guard (use only for false positives)."),
+    chunk: bool = typer.Option(
+        False, "--chunk",
+        help="Split text longer than the length cap into sentence-boundary chunks "
+        "sharing a _group_id instead of failing."),
+    chunk_chars: int = typer.Option(1500, "--chunk-chars", help="Max chars per chunk."),
+    overlap: int = typer.Option(150, "--overlap", help="Overlap chars between chunks."),
+    summary: str = typer.Option(
+        "", "--summary", help="Short caller-provided summary (≤ 200 chars; used by --brief)."),
+    lenient: bool = typer.Option(
+        False, "--lenient", help="Legacy behavior: invalid metadata JSON warns and saves empty."),
     json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
 ) -> None:
     """Save a document/scenario outcome into the vector DB."""
@@ -103,14 +113,31 @@ def save(
     import os as _os
     if allow_sensitive:
         _os.environ[_set_override] = "1"
+    if lenient:
+        _os.environ["VM_LENIENT"] = "1"
+    if summary:
+        # Merge --summary into the metadata (explicit flag wins over --metadata).
+        import json as _json
+
+        try:
+            meta_obj = _json.loads(metadata) if metadata.strip() else {}
+        except _json.JSONDecodeError:
+            meta_obj = {}
+        if not isinstance(meta_obj, dict):
+            meta_obj = {}
+        meta_obj["summary"] = summary
+        metadata = _json.dumps(meta_obj, ensure_ascii=False)
     try:
         _run_cli(save_memory, text, metadata, collection, project=project, type=type,
                  tags=list(tags), supersedes=supersedes_ids,
                  allow_duplicate=allow_duplicate, on_similar=on_similar,
+                 chunk=chunk, chunk_chars=chunk_chars, overlap=overlap,
                  json_mode=json_output)
     finally:
         if allow_sensitive:
             _os.environ.pop(_set_override, None)
+        if lenient:
+            _os.environ.pop("VM_LENIENT", None)
 
 @app.command()
 def save_many(
@@ -154,6 +181,9 @@ def search(
     max_chars: int = typer.Option(0, "--max-chars", help="Per-hit char cap (0 = full text)."),
     output_format: str = typer.Option("text", "--format", help="text | compact"),
     agent: str = typer.Option("", "--agent", help="Filter by author agent id (_agent)."),
+    collapse_groups: bool = typer.Option(
+        False, "--collapse-groups",
+        help="Return only the best chunk per _group_id (long-text chunking)."),
     json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
 ) -> None:
     """Search stored documents/scenarios semantically similar to a query."""
@@ -162,7 +192,8 @@ def search(
              tag=list(tag), type=type_filter, source=source,
              min_score=min_score, recency_weight=recency_weight, mmr=mmr,
              brief=brief, max_chars=max_chars, output_format=output_format,
-             agent=agent, json_mode=json_output)
+             agent=agent, collapse_groups=collapse_groups,
+             json_mode=json_output)
 
 
 @app.command()
@@ -210,13 +241,19 @@ def delete_by_filter_cmd(
     filter: str = typer.Option("", help="Payload filter as JSON (required; empty = refused)."),
     collection: str = typer.Option("", help="Collection to delete from."),
     project: str = typer.Option("", help="Project filter."),
+    tag: list[str] = typer.Option([], "--tag", help="Tag filter (repeatable, any-of)."),
+    type_filter: str = typer.Option("", "--type", help="Exact type filter."),
+    source: str = typer.Option("", "--source", help="Exact source filter."),
+    since: str = typer.Option("", "--since", help="Created after (7d, 24h, or ISO date)."),
+    before: str = typer.Option("", "--before", help="Created before."),
     no_dry_run: bool = typer.Option(False, "--no-dry-run", help="Really delete (needs --yes too)."),
     yes: bool = typer.Option(False, "--yes", help="Confirm real deletion."),
     json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
 ) -> None:
     """Bulk-delete points matching a filter (DRY-RUN by default)."""
     _run_cli(bulk.delete_by_filter, filter, collection, project,
-             no_dry_run=no_dry_run, yes=yes, json_mode=json_output)
+             tag=list(tag), type=type_filter, source=source, since=since,
+             before=before, no_dry_run=no_dry_run, yes=yes, json_mode=json_output)
 
 
 @app.command(name="delete-collection")
@@ -226,10 +263,12 @@ def delete_collection_cmd(
     i_know_this_is_default: bool = typer.Option(
         False, "--i-know-this-is-default",
         help="Required to delete the configured default collection."),
+    json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
 ) -> None:
     """Delete a whole collection (double-confirmed)."""
     _run_cli(bulk.delete_collection, name, confirm,
-             default_collection="" if not i_know_this_is_default else "__force_default__")
+             default_collection="" if not i_know_this_is_default else "__force_default__",
+             json_mode=json_output)
 
 
 @app.command()
@@ -242,6 +281,7 @@ def migrate(
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Report what would change without writing."
     ),
+    json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
 ) -> None:
     """Backfill system fields on legacy points (non-destructive, resumable)."""
     from .migrate import migrate_collection
@@ -268,7 +308,7 @@ def migrate(
         typer.echo(f"dry-run: {legacy}/{total} points in {name!r} would be migrated (nothing written)")
         return
     _run_cli(_run_safe, _fmt_summary, migrate_collection, name,
-             assume_model=assume_model)
+             assume_model=assume_model, json_mode=json_output)
 
 
 def _fmt_summary(summary: dict) -> str:
@@ -282,20 +322,22 @@ def _fmt_summary(summary: dict) -> str:
 def archive(
     point_ids: str = typer.Argument(..., help="Comma-separated point IDs to archive."),
     collection: str = typer.Option("", help="Collection holding the points."),
+    json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
 ) -> None:
     """Archive memories (hidden from default search; kept for audit)."""
     ids = [s.strip() for s in point_ids.split(",") if s.strip()]
-    _run_cli(set_status, ids, "archived", collection)
+    _run_cli(set_status, ids, "archived", collection, json_mode=json_output)
 
 
 @app.command(name="unarchive")
 def unarchive_cmd(
     point_ids: str = typer.Argument(..., help="Comma-separated point IDs to unarchive."),
     collection: str = typer.Option("", help="Collection holding the points."),
+    json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
 ) -> None:
     """Unarchive memories (return them to active)."""
     ids = [s.strip() for s in point_ids.split(",") if s.strip()]
-    _run_cli(set_status, ids, "active", collection)
+    _run_cli(set_status, ids, "active", collection, json_mode=json_output)
 
 
 @app.command()
@@ -304,12 +346,13 @@ def reembed(
     to: str = typer.Option(..., "--to", help="Target collection (same IDs and payloads; re-embedded)."),
     batch: int = typer.Option(32, help="Points per embed batch."),
     resume: bool = typer.Option(False, "--resume", help="Skip IDs already present in the target."),
+    json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
 ) -> None:
     """Re-embed a collection into a new one with the current model (VM model change)."""
     from .reembed import reembed_collection
 
     _run_cli(_run_safe, _fmt_reembed, reembed_collection, collection, to,
-             EMBED_MODEL, batch_size=batch, resume=resume)
+             EMBED_MODEL, batch_size=batch, resume=resume, json_mode=json_output)
 
 
 def _fmt_reembed(s: dict) -> str:
@@ -337,7 +380,7 @@ def get(
     _run_cli(get_memory, ids, collection, with_system=system, json_mode=json_output)
 
 
-@app.command()
+@app.command(name="list")
 def list_memories(
     collection: str = typer.Option("", help="Collection to browse."),
     filter: str = typer.Option("", help="Payload filter as JSON."),
@@ -346,10 +389,17 @@ def list_memories(
     project: str = typer.Option("", help="Project filter."),
     include_inactive: bool = typer.Option(False, "--include-inactive"),
     cursor: str = typer.Option("", help="Offset from the previous page's next-cursor."),
+    tag: list[str] = typer.Option([], "--tag", help="Tag filter (repeatable, any-of)."),
+    type_filter: str = typer.Option("", "--type", help="Exact type filter."),
+    source: str = typer.Option("", "--source", help="Exact source filter."),
+    since: str = typer.Option("", "--since", help="Created after (7d, 24h, or ISO date)."),
+    before: str = typer.Option("", "--before", help="Created before."),
+    json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
 ) -> None:
     """Browse memories (deterministic newest-first order, with next-cursor)."""
     _run_cli(browse.list_memories, collection, filter, limit, order_by, project,
-             include_inactive, cursor)
+             include_inactive, cursor, tag=list(tag), type=type_filter,
+             source=source, since=since, before=before, json_mode=json_output)
 
 
 @app.command()
@@ -358,18 +408,27 @@ def count(
     filter: str = typer.Option("", help="Payload filter as JSON."),
     project: str = typer.Option("", help="Project filter."),
     include_inactive: bool = typer.Option(False, "--include-inactive"),
+    tag: list[str] = typer.Option([], "--tag", help="Tag filter (repeatable, any-of)."),
+    type_filter: str = typer.Option("", "--type", help="Exact type filter."),
+    source: str = typer.Option("", "--source", help="Exact source filter."),
+    since: str = typer.Option("", "--since", help="Created after (7d, 24h, or ISO date)."),
+    before: str = typer.Option("", "--before", help="Created before."),
+    json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
 ) -> None:
     """Count memories matching the (optional) filter."""
-    _run_cli(browse.count_memories, collection, filter, project, include_inactive)
+    _run_cli(browse.count_memories, collection, filter, project, include_inactive,
+             tag=list(tag), type=type_filter, source=source, since=since,
+             before=before, json_mode=json_output)
 
 
 @app.command()
 def stats(
     collection: str = typer.Option("", help="Collection to summarize."),
     max_scan: int = typer.Option(5000, help="Cap on points scanned."),
+    json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
 ) -> None:
     """Per-collection summary: statuses, projects, types, created range, model."""
-    _run_cli(browse.collection_stats, collection, max_scan)
+    _run_cli(browse.collection_stats, collection, max_scan, json_mode=json_output)
 
 
 @app.command()
@@ -379,9 +438,11 @@ def values(
     filter: str = typer.Option("", help="Payload filter as JSON."),
     limit: int = typer.Option(50, help="Max distinct values."),
     project: str = typer.Option("", help="Project filter."),
+    json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
 ) -> None:
     """Discover distinct values of a metadata field (schema in use)."""
-    _run_cli(browse.field_values, field, collection, filter, limit, project)
+    _run_cli(browse.field_values, field, collection, filter, limit, project,
+             json_mode=json_output)
 
 
 @app.command()
@@ -410,6 +471,27 @@ def import_memories(
     else:
         data = pathlib.Path(path).read_text(encoding="utf-8")
     _run_cli(backup.import_memories, data, collection, reembed, on_conflict)
+
+
+@app.command()
+def consolidate(
+    collection: str = typer.Option("", help="Collection to scan (read-only)."),
+    project: str = typer.Option("", help="Scope to one project."),
+    older_than: str = typer.Option("", help="Only memories created before (30d, 24h, ISO date)."),
+    min_similarity: float = typer.Option(0.99, help="Clustering cosine floor."),
+    limit_groups: int = typer.Option(20, help="Max groups reported."),
+    max_scan: int = typer.Option(5000, help="Cap on points scanned."),
+    json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
+) -> None:
+    """Find near-duplicate candidate groups (read-only; the agent merges)."""
+    _run_cli(_run_safe_consolidate, collection, project, older_than,
+             min_similarity, limit_groups, max_scan, json_mode=json_output)
+
+
+def _run_safe_consolidate(*args, **kwargs) -> str:
+    from .consolidate import consolidate as _find
+
+    return _find(*args, **kwargs)
 
 
 @app.command()

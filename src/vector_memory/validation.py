@@ -52,14 +52,17 @@ def content_hash(text: str) -> str:
     return hashlib.sha256(normalize_text(text).encode("utf-8")).hexdigest()
 
 
-def validate_text(text: Any, *, where: str = "text") -> str:
-    """Non-empty after strip, capped at MAX_TEXT_CHARS; returns the stripped text."""
+def validate_text(text: Any, *, where: str = "text", allow_long: bool = False) -> str:
+    """Non-empty after strip, capped at MAX_TEXT_CHARS; returns the stripped text.
+
+    ``allow_long=True`` (chunking) skips the length cap — the caller splits.
+    """
     if not isinstance(text, str):
         raise ArgumentError(f"{where} must be a string")
     stripped = text.strip()
     if not stripped:
         raise ArgumentError(f"{where} is empty")
-    if len(stripped) > MAX_TEXT_CHARS:
+    if not allow_long and len(stripped) > MAX_TEXT_CHARS:
         raise ArgumentError(
             f"{where} too long ({len(stripped)} > {MAX_TEXT_CHARS}); "
             "split it or use --chunk"

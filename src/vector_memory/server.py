@@ -62,6 +62,16 @@ def save_superseding(text: str, supersedes: list[str],
 
 
 @mcp.tool()
+def save_chunked(text: str, chunk_chars: int = 1500, overlap: int = 150,
+                 metadata: str | dict[str, Any] = "{}", collection: str = "") -> str:
+    """Save long text by splitting it into sentence-boundary chunks sharing a
+    _group_id (Hangul-aware splitting). Search with collapse_groups=True to
+    see only the best chunk per group."""
+    return _core.call(_core.save_memory, text, metadata, collection,
+                      chunk=True, chunk_chars=chunk_chars, overlap=overlap)
+
+
+@mcp.tool()
 def save_memories(texts: list[str], metadata: str | dict[str, Any] = "{}",
                   collection: str = "") -> str:
     """Save multiple documents into the vector DB in one batch.
@@ -75,14 +85,23 @@ def save_memories(texts: list[str], metadata: str | dict[str, Any] = "{}",
 @mcp.tool()
 def search_memory(query: str, limit: int = 3, filter: str | dict[str, Any] = "",
                   collection: str = "", project: str = "",
-                  include_inactive: bool = False) -> str:
-    """Search the vector DB for past documents/scenarios semantically similar
-    to a query. Superseded/archived memories are hidden unless
-    include_inactive=True (hits are annotated with their status). filter is an
-    optional payload filter (JSON string or object). project (optional) ANDs
-    an exact-match condition on the payload 'project' field."""
+                  include_inactive: bool = False, since: str = "",
+                  before: str = "", tag: list[str] | None = None,
+                  type: str = "", source: str = "", agent: str = "",
+                  min_score: float | None = None, recency_weight: float = 0.0,
+                  mmr: float = 0.0, brief: bool = False, max_chars: int = 0,
+                  output_format: str = "text", collapse_groups: bool = False) -> str:
+    """Search the vector DB for memories semantically similar to a query.
+    Superseded/archived memories are hidden unless include_inactive=True.
+    Enhancements (all optional): since/before (7d|24h|ISO date), tag/type/
+    source/agent filters, min_score, recency_weight (0-1), mmr (0-1
+    diversity), brief/max_chars truncation (prefers summary), output_format
+    text|compact, collapse_groups (best chunk per _group_id). filter is an
+    optional payload filter (JSON string/object)."""
     return _core.call(_core.search_memory, query, limit, filter, collection, project,
-                      include_inactive)
+                      include_inactive, since, before, tag, type, source,
+                      min_score, recency_weight, mmr, brief, max_chars,
+                      output_format, "", collapse_groups)
 
 
 @mcp.tool()
@@ -136,16 +155,21 @@ def get(point_ids: list[str], collection: str = "", with_system: bool = False) -
 
 @mcp.tool()
 def list_memories(collection: str = "", limit: int = 25, project: str = "",
-                  include_inactive: bool = False) -> str:
-    """Browse memories (newest first) without embedding a query."""
+                  include_inactive: bool = False, tag: list[str] | None = None,
+                  type: str = "", source: str = "", since: str = "",
+                  before: str = "", cursor: str = "") -> str:
+    """Browse memories (newest first) without embedding a query; optional
+    tag/type/source/since/before filters and cursor pagination."""
     return _core.call(_browse.list_memories, collection, "", limit, "", project,
-                      include_inactive)
+                      include_inactive, cursor, tag, type, source, since, before)
 
 
 @mcp.tool()
-def count(collection: str = "", project: str = "") -> str:
-    """Count active memories in a collection (optionally project-scoped)."""
-    return _core.call(_browse.count_memories, collection, "", project, False)
+def count(collection: str = "", project: str = "", tag: list[str] | None = None,
+          type: str = "", source: str = "", since: str = "", before: str = "") -> str:
+    """Count active memories in a collection (optional convenience filters)."""
+    return _core.call(_browse.count_memories, collection, "", project, False,
+                      tag, type, source, since, before)
 
 
 @mcp.tool()

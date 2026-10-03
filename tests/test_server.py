@@ -391,8 +391,8 @@ def test_tool_count():
     tools = anyio.run(s.mcp.list_tools)
     names = {t.name for t in tools}
     assert names == {
-        "save_memory", "save_superseding", "save_memories", "search_memory",
-        "archive", "unarchive", "update_memory", "patch_metadata",
-        "delete_memory", "list_collections", "get", "list_memories",
-        "count", "values",
+        "save_memory", "save_superseding", "save_chunked", "save_memories",
+        "search_memory", "archive", "unarchive", "update_memory",
+        "patch_metadata", "delete_memory", "list_collections", "get",
+        "list_memories", "count", "values",
     }

@@ -12,7 +12,8 @@ from .filters import build_filter, merge_convenience
 
 def delete_by_filter(
     filter: str | dict[str, Any], collection: str = "",
-    project: str = "", *,
+    project: str = "", tag: list[str] | None = None, type: str = "",
+    source: str = "", since: str = "", before: str = "", *,
     no_dry_run: bool = False, yes: bool = False,
 ) -> str:
     """Delete points matching the filter. DRY-RUN by default: prints what
@@ -21,7 +22,8 @@ def delete_by_filter(
     """
     name = _resolve(collection)
     flt, _ = build_filter(filter)
-    flt = merge_convenience(flt, project=project)
+    flt = merge_convenience(flt, project=project, tag=tag, type=type,
+                            source=source, since=since, before=before)
     if flt is None:
         raise ArgumentError(
             "refusing to delete the whole collection; use delete-collection")

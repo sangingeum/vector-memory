@@ -126,7 +126,9 @@ def save_memory(text: str, metadata: str | dict[str, Any] = "{}",
                 tags: list[str] | None = None,
                 supersedes: list[str] | None = None,
                 allow_duplicate: bool = False,
-                on_similar: str = "") -> str:
+                on_similar: str = "",
+                chunk: bool = False, chunk_chars: int = 1500,
+                overlap: int = 150) -> str:
     """Save a document/scenario outcome into the vector DB.
 
     Raises :class:`ArgumentError` on invalid input (nothing written).
@@ -138,8 +140,13 @@ def save_memory(text: str, metadata: str | dict[str, Any] = "{}",
     threshold, default 0.985) are reported by ``on_similar`` mode
     (warn|skip|error) — never merged. Text matching a high-confidence secret
     rule raises :class:`SensitiveContentError` before any write.
+    With ``chunk=True``, text above the length cap is split into
+    sentence-boundary chunks sharing a ``_group_id`` (``_chunk_index`` per
+    chunk) instead of being rejected.
     """
-    stripped = validate_text(text)
+    from .validation import MAX_TEXT_CHARS
+
+    stripped = validate_text(text, allow_long=chunk)
     _sensitive.check_text(stripped)
     meta_dict = parse_metadata(metadata)
     _apply_explicit_metadata(meta_dict, project=project, type=type, tags=tags)
@@ -147,6 +154,9 @@ def save_memory(text: str, metadata: str | dict[str, Any] = "{}",
         name = _apply_collection(collection)
         if supersedes:
             _validate_supersede_targets(name, supersedes)
+        if chunk and len(stripped) > MAX_TEXT_CHARS:
+            return _save_chunked(name, stripped, meta_dict, chunk_chars, overlap,
+                                 supersedes, project)
         vector = embed(stripped)
         similar = _dedupe.find_similar(name, vector, project=project)
         skip_id = _dedupe.apply_similar_policy(similar, on_similar or _dedupe.on_similar_mode())
@@ -205,6 +215,31 @@ def save_memory(text: str, metadata: str | dict[str, Any] = "{}",
         )
     except Exception as exc:
         raise _backend_or_internal(exc) from exc
+
+
+def _save_chunked(name: str, stripped: str, meta_dict: dict[str, Any],
+                  chunk_chars: int, overlap: int,
+                  supersedes: list[str] | None, project: str) -> str:
+    """Split oversized text into a chunk group and save each chunk."""
+    from . import chunking as _chunking
+
+    group_id = str(uuid.uuid4())
+    chunks = _chunking.split_text(stripped, chunk_chars=chunk_chars, overlap=overlap)
+    vectors = _embedding.embed_many(chunks)
+    points = []
+    for index, (chunk_text, vector) in enumerate(zip(chunks, vectors, strict=True)):
+        payload = dict(meta_dict)
+        payload["text"] = chunk_text
+        payload[_payload.GROUP_ID] = group_id
+        payload[_payload.CHUNK_INDEX] = index
+        payload.update(_payload.system_fields_for_new_text(chunk_text, current_embed_model(), _agent_id()))
+        points.append(PointStruct(id=str(uuid.uuid4()), vector=vector, payload=payload))
+    _store.qdrant.upsert(collection_name=name, points=points, wait=True)
+    if supersedes:
+        _mark_superseded(name, supersedes, str(points[0].id))
+    return _with_lenient_warning(
+        f"Saved {len(points)} chunks (group: {group_id[:8]}…, collection: {name})"
+    )
 
 
 def _format_similar(result: str, similar: list[dict[str, Any]]) -> str:
@@ -347,7 +382,8 @@ def search_memory(query: str, limit: int = 3, filter: str | dict[str, Any] = "",
                   brief: bool = False,
                   max_chars: int = 0,
                   output_format: str = "text",
-                  agent: str = "") -> str:
+                  agent: str = "",
+                  collapse_groups: bool = False) -> str:
     """Search for stored documents/scenarios similar to a query.
 
     Superseded/archived memories are hidden by default (legacy points without
@@ -406,6 +442,11 @@ def search_memory(query: str, limit: int = 3, filter: str | dict[str, Any] = "",
         hits = list(response.points)
     except Exception as exc:
         raise _backend_or_internal(exc) from exc
+
+    if collapse_groups and hits:
+        from . import chunking as _chunking
+
+        hits = _chunking.collapse_groups(hits)
 
     if recency_weight > 0 and hits:
         import math

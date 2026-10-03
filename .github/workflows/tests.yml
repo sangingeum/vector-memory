@@ -1,0 +1,21 @@
+name: tests
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+      - name: Sync dependencies (frozen)
+        run: uv sync --frozen
+      - name: Lint (ruff)
+        run: uvx ruff check src tests
+      - name: Tests (offline; live tests excluded)
+        run: uv run pytest -m "not live" -q
