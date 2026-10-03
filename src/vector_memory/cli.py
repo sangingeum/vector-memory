@@ -278,6 +278,24 @@ def _run_safe(fmt, op, *args, **kwargs) -> str:
     return fmt(op(*args, **kwargs))
 
 
+@app.command()
+def doctor(
+    json_output: bool = typer.Option(False, "--json", help="Checks as a JSON array."),
+) -> None:
+    """Health-check Ollama, Qdrant, and the default collection (read-only)."""
+    from .doctor import format_text, has_failures, run_checks
+
+    checks = run_checks()
+    if json_output:
+        import json as _json
+
+        typer.echo(_json.dumps({"schema": 1, "checks": checks}, ensure_ascii=False))
+    else:
+        typer.echo(format_text(checks))
+    if has_failures(checks):
+        raise typer.Exit(1)
+
+
 @app.command(name="list-collections")
 def list_collections_cmd() -> None:
     """List all collections currently present in Qdrant."""

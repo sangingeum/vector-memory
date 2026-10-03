@@ -44,6 +44,11 @@ class HashEmbedder:
     def embeddings(self, model=None, prompt=None, **kw):
         return {"embedding": self._vec(str(prompt))}
 
+    def list(self):  # ollama client API: models list (doctor uses it)
+        model_obj = type("M", (), {})()
+        model_obj.model = "qwen3-embedding:8b"
+        return type("R", (), {"models": [model_obj]})()
+
 
 @pytest.fixture()
 def local_qdrant(monkeypatch):
