@@ -16,8 +16,9 @@ from typing import Any
 from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
 from . import payload as _payload
+from . import reembed as _fingerprint
 from . import store as _store
-from .embedding import EMBED_MODEL, embed, embed_many
+from .embedding import embed, embed_many
 from .errors import ArgumentError, NotFoundError, format_error
 from .store import (
     COLLECTION_NAME,
@@ -47,6 +48,13 @@ def _append_warning(result: str, warning: str | None) -> str:
     return result
 
 
+def current_embed_model() -> str:
+    """Read the configured embedding model at call time (tests monkeypatch it)."""
+    from .embedding import EMBED_MODEL
+
+    return EMBED_MODEL
+
+
 def _agent_id() -> str:
     """Optional author id stamped as ``_agent`` (VM_AGENT_ID env)."""
     import os
@@ -57,8 +65,9 @@ def _agent_id() -> str:
 def _apply_collection(collection: str | None) -> str:
     """Resolve the effective collection name and create it if missing."""
     name = collection if collection and collection.strip() else COLLECTION_NAME
-    ensure_collection_for(name, embed, embed_model=EMBED_MODEL)
+    ensure_collection_for(name, embed, embed_model=current_embed_model())
     _payload.ensure_payload_indexes(_store.qdrant, name)
+    _fingerprint.check_collection_model(name, current_embed_model())
     return name
 
 
@@ -103,7 +112,7 @@ def save_memory(text: str, metadata: str | dict[str, Any] = "{}",
         vector = embed(stripped)
         point_id = str(uuid.uuid4())
         meta_dict["text"] = stripped
-        meta_dict.update(_payload.system_fields_for_new_text(stripped, EMBED_MODEL, _agent_id()))
+        meta_dict.update(_payload.system_fields_for_new_text(stripped, current_embed_model(), _agent_id()))
         if supersedes:
             meta_dict[_payload.SUPERSEDES] = list(supersedes)
         _store.qdrant.upsert(
@@ -190,7 +199,7 @@ def save_memories(texts: list[str], metadata: str | dict[str, Any] = "{}",
     for text, vector in zip(stripped, vectors, strict=True):
         payload = dict(meta_dict)
         payload["text"] = text
-        payload.update(_payload.system_fields_for_new_text(text, EMBED_MODEL, _agent_id()))
+        payload.update(_payload.system_fields_for_new_text(text, current_embed_model(), _agent_id()))
         points.append(PointStruct(id=str(uuid.uuid4()), vector=vector, payload=payload))
     _store.qdrant.upsert(collection_name=name, points=points, wait=True)
     ids = [str(p.id) for p in points]
@@ -218,6 +227,7 @@ def search_memory(query: str, limit: int = 3, filter: str | dict[str, Any] = "",
         qdrant_filter = _payload.active_filter(qdrant_filter)
     try:
         name = collection if collection and collection.strip() else COLLECTION_NAME
+        _fingerprint.check_collection_model(name, current_embed_model())
         query_vector = embed(query)
         response = _store.qdrant.query_points(
             collection_name=name,

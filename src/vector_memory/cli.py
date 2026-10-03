@@ -19,6 +19,7 @@ from .core import (
     set_status,
     update_memory,
 )
+from .embedding import EMBED_MODEL
 from .store import COLLECTION_NAME
 
 app = typer.Typer(
@@ -203,6 +204,28 @@ def unarchive_cmd(
     """Unarchive memories (return them to active)."""
     ids = [s.strip() for s in point_ids.split(",") if s.strip()]
     _emit(_guard(set_status(ids, "active", collection)))
+
+
+@app.command()
+def reembed(
+    collection: str = typer.Option(..., "--collection", help="Source collection (never mutated)."),
+    to: str = typer.Option(..., "--to", help="Target collection (same IDs and payloads; re-embedded)."),
+    batch: int = typer.Option(32, help="Points per embed batch."),
+    resume: bool = typer.Option(False, "--resume", help="Skip IDs already present in the target."),
+) -> None:
+    """Re-embed a collection into a new one with the current model (VM model change)."""
+    from .reembed import reembed_collection
+
+    _emit(_guard(_fmt_reembed(reembed_collection(collection, to, EMBED_MODEL,
+                                                 batch_size=batch, resume=resume))))
+
+
+def _fmt_reembed(s: dict) -> str:
+    return (
+        f"Re-embedded {s['copied']}/{s['source_count']} points from {s['source']!r} "
+        f"into {s['target']!r} (skipped {s['skipped']}); target now has "
+        f"{s['target_count']} points, model {s['model']}"
+    )
 
 
 @app.command(name="list-collections")
