@@ -1,4 +1,6 @@
-import json, os, sys
+import json
+import sys
+
 sys.path.insert(0, ".")
 import mcp_server as s
 

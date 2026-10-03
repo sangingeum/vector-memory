@@ -9,7 +9,7 @@ store.py / core.py / server.py). Importing ``mcp_server`` still works for the
 repo-root entry point and the live smoke test.
 """
 
-from vector_memory import *  # noqa: F401,F403
+from vector_memory import *
 from vector_memory import (  # noqa: F401  (explicit for tools)
     COLLECTION_NAME,
     EMBED_MODEL,

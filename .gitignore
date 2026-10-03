@@ -28,3 +28,4 @@ venv/
 test_stderr.log
 mismatch_stderr.log
 docs/fixtures/
+docs/audit_probe.log

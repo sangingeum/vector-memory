@@ -12,7 +12,7 @@ write, calibration) used a scratch collection that was deleted afterwards.
 - **No system fields exist today** — zero points carry `_`-prefixed keys.
   There are no timestamps, no hashes, no `_status`.
 - 345 points total; **15 points have no metadata at all** (only `text`);
-  2 of them belong to the `solomon` collection (3 points, all bare `text`).
+  2 of them belong to the `<redacted-agent-name>` collection (3 points, all bare `text`).
 - Collection config: dim 4096, distance COSINE, single unnamed vector.
 
 ## 2. Entry points
@@ -35,7 +35,7 @@ write, calibration) used a scratch collection that was deleted afterwards.
   lists into a single tag string. This informs the recommended-schema docs
   (type as soft enum, tags validation) but legacy values must stay readable.
 - Other collections on the same Qdrant: `idx_*` (code-indexer's own, 1000s of
-  points), `vivarium` (3), `solomon` (2). Migration must be
+  points), `vivarium` (3), `<redacted>` (2). Migration must be
   per-collection opt-in; default collection `agent_scenarios`.
 - Fixture: `docs/fixtures/agent_scenarios.jsonl` (345 records: id + payload,
   vectors excluded — no sensitive vectors, payload text only).
@@ -44,8 +44,8 @@ write, calibration) used a scratch collection that was deleted afterwards.
 
 - qdrant-client 1.19.1 (pinned `>=1.15,<2` — fine), Qdrant server 1.19.1.
   Supports `create_payload_index`, `scroll(order_by=...)`, facet, local mode.
-- Ollama host: `192.168.1.103:11434` (per `embedding.py` default; NOT
-  192.168.1.105 — that is Qdrant). Model `qwen3-embedding:8b` present,
+- Ollama host: `192.168.X.X:11434` (per `embedding.py` default; NOT
+  192.168.X.X — that is Qdrant). Model `qwen3-embedding:8b` present,
   dimension 4096.
 - Read-your-write verified: search immediately after upsert (without
   `wait=True`) sees the point — but `wait=True` is still adopted to make the

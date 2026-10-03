@@ -22,7 +22,7 @@ def env(local_qdrant, monkeypatch):
     return st
 
 
-def test_b10_non_string_metadata_raises(env):
+def test_non_string_metadata_raises(env):
     from vector_memory.errors import ArgumentError
     from vector_memory.validation import parse_metadata_strict
 
@@ -32,7 +32,7 @@ def test_b10_non_string_metadata_raises(env):
         parse_metadata_strict([1])
 
 
-def test_b14_migrate_missing_collection_not_found_error():
+def test_migrate_missing_collection_not_found_error():
     from vector_memory.errors import NotFoundError
     from vector_memory.migrate import migrate_collection
 
@@ -40,7 +40,7 @@ def test_b14_migrate_missing_collection_not_found_error():
         migrate_collection("vm_no_such_collection")
 
 
-def test_b14_delete_collection_missing_not_found_error(env):
+def test_delete_collection_missing_not_found_error(env):
     from vector_memory.bulk import delete_collection
     from vector_memory.errors import NotFoundError
 
@@ -48,7 +48,7 @@ def test_b14_delete_collection_missing_not_found_error(env):
         delete_collection("vm_no_such_collection", confirm="vm_no_such_collection")
 
 
-def test_b17_unarchive_clears_superseded_by(env):
+def test_unarchive_clears_superseded_by(env):
     """Chosen behavior: unarchive of a superseded point CLEARS the stale
     _superseded_by link (documented in README) so no dangling link remains."""
     from qdrant_client.models import PointStruct
@@ -69,7 +69,7 @@ def test_b17_unarchive_clears_superseded_by(env):
     assert "_superseded_by" not in point.payload
 
 
-def test_b17_unarchive_of_active_point_noop_keys(env):
+def test_unarchive_of_active_point_noop_keys(env):
     from qdrant_client.models import PointStruct
 
     from vector_memory import core

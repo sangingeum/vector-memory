@@ -6,8 +6,11 @@ Format follows Keep a Changelog; versions are informal until 1.0.
 ## Unreleased — fix round (2026-10-04)
 
 Fixes from the two-axis review (`docs/review-improvement-round-2026-10-04.md`,
-PASS-WITH-NOTES). B-1 (production fixture on GitHub) is EXCLUDED — owner
-decision pending; nothing was touched under `docs/fixtures/`.
+PASS-WITH-NOTES). B-1 (production fixture on GitHub) was subsequently
+REMEDIATED per owner ruling: the fixture was purged from all history
+(`git filter-repo`), `docs/fixtures/` is gitignored and local-only, and a
+fresh fixture was regenerated locally from the production collection for
+migration-verification use.
 
 ### Fixed
 - **B-2 MCP isError**: `call()` now propagates typed errors — FastMCP marks
@@ -157,7 +160,7 @@ decision pending; nothing was touched under `docs/fixtures/`.
 - **Test scaffolding**: local-mode Qdrant (`QdrantClient(":memory:")`) +
   deterministic hash embedder fixtures; pytest `live` marker with
   warn-clean bar; Step 0 audit, similarity calibration, production
-  fixture (`docs/fixtures/agent_scenarios.jsonl`); MCP stdio smoke test.
+  fixture (`docs/fixtures/agent_scenarios.jsonl`, since made local-only/gitignored); MCP stdio smoke test.
 
 ### Changed (intentional semantic changes)
 - **Strict validation replaces warn-and-continue.** Agents that ignored
