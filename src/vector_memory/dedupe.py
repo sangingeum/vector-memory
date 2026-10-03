@@ -88,6 +88,27 @@ def find_similar(
     return out[:limit]
 
 
+def find_legacy_duplicate(collection_name: str, digest: str) -> str | None:
+    """ID of an existing point whose ``_content_hash`` matches *digest*.
+
+    Catches duplicates of legacy (uuid4) points that a migration already
+    stamped with ``_content_hash`` — they can never collide with the uuid5
+    deterministic id. Returns the first match or None.
+    """
+    from qdrant_client.models import FieldCondition, MatchValue
+
+    flt = Filter(must=[FieldCondition(
+        key=_payload.CONTENT_HASH, match=MatchValue(value=digest))])
+    try:
+        batch, _ = _store.qdrant.scroll(
+            collection_name=collection_name, scroll_filter=flt,
+            limit=1, with_payload=False, with_vectors=False,
+        )
+    except Exception:
+        return None
+    return str(batch[0].id) if batch else None
+
+
 def on_similar_mode() -> str:
     """Configured on-similar behavior: warn | skip | error (default warn)."""
     raw = os.environ.get("VM_ON_SIMILAR", "").strip().lower()

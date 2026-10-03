@@ -33,7 +33,7 @@ from .store import (
     ensure_collection_for,
     parse_metadata,
 )
-from .validation import validate_text
+from .validation import content_hash, validate_text
 
 
 def call(op, *args, **kwargs) -> str:
@@ -161,6 +161,15 @@ def save_memory(text: str, metadata: str | dict[str, Any] = "{}",
         else:
             point_id = _dedupe.duplicate_point_id(name, stripped)
             existing = _store.qdrant.retrieve(collection_name=name, ids=[point_id], with_payload=True)
+            if not existing:
+                # Legacy-duplicate catch: a migrated uuid4 point already holds
+                # this content hash — refresh THAT point instead of creating
+                # a second one.
+                legacy_id = _dedupe.find_legacy_duplicate(
+                    name, content_hash(stripped))
+                if legacy_id:
+                    point_id = legacy_id
+                    existing = _store.qdrant.retrieve(collection_name=name, ids=[legacy_id], with_payload=True)
             if existing:
                 # Idempotent refresh: same normalized text, same point.
                 old_payload = dict(existing[0].payload or {})
