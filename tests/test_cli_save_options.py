@@ -57,7 +57,10 @@ def test_empty_options_leave_metadata_untouched(env):
     fq, _ = env
     s.save_memory("cli doc", metadata='{"project": "only-json"}')
     (stored,) = _stored_payloads(fq)
-    assert stored == {"project": "only-json", "text": "cli doc"}
+    assert stored["project"] == "only-json"
+    # Only user metadata + text + system fields — no convenience keys.
+    assert "type" not in stored and "tags" not in stored
+    assert stored["text"] == "cli doc"
 
 
 def test_cli_save_options_end_to_end(env):

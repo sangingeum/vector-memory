@@ -15,6 +15,7 @@ from typing import Any
 
 from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
+from . import payload as _payload
 from . import store as _store
 from .embedding import EMBED_MODEL, embed, embed_many
 from .errors import ArgumentError, NotFoundError, format_error
@@ -46,10 +47,18 @@ def _append_warning(result: str, warning: str | None) -> str:
     return result
 
 
+def _agent_id() -> str:
+    """Optional author id stamped as ``_agent`` (VM_AGENT_ID env)."""
+    import os
+
+    return os.environ.get("VM_AGENT_ID", "").strip()
+
+
 def _apply_collection(collection: str | None) -> str:
     """Resolve the effective collection name and create it if missing."""
     name = collection if collection and collection.strip() else COLLECTION_NAME
     ensure_collection_for(name, embed, embed_model=EMBED_MODEL)
+    _payload.ensure_payload_indexes(_store.qdrant, name)
     return name
 
 
@@ -87,6 +96,7 @@ def save_memory(text: str, metadata: str | dict[str, Any] = "{}",
         vector = embed(stripped)
         point_id = str(uuid.uuid4())
         meta_dict["text"] = stripped
+        meta_dict.update(_payload.system_fields_for_new_text(stripped, EMBED_MODEL, _agent_id()))
         _store.qdrant.upsert(
             collection_name=name,
             points=[PointStruct(id=point_id, vector=vector, payload=meta_dict)],
@@ -121,6 +131,7 @@ def save_memories(texts: list[str], metadata: str | dict[str, Any] = "{}",
     for text, vector in zip(stripped, vectors, strict=True):
         payload = dict(meta_dict)
         payload["text"] = text
+        payload.update(_payload.system_fields_for_new_text(text, EMBED_MODEL, _agent_id()))
         points.append(PointStruct(id=str(uuid.uuid4()), vector=vector, payload=payload))
     _store.qdrant.upsert(collection_name=name, points=points, wait=True)
     ids = [str(p.id) for p in points]
@@ -205,11 +216,16 @@ def update_memory(point_id: str, text: str | None = None,
     if text is None or not text.strip():
         # Metadata-only update: keep the existing text and vector, replace
         # the payload without re-embedding.
-        payload["text"] = (point.payload or {}).get("text", "") if _has_metadata(metadata) else payload["text"]
+        old_payload = point.payload or {}
+        if _has_metadata(metadata):
+            payload["text"] = old_payload.get("text", "")
+        payload.update(_payload.system_fields_for_update(old_payload, None))
         _store.qdrant.set_payload(collection_name=name, payload=payload, points=[point_id])
         return _with_lenient_warning(f"Memory updated (ID: {point_id}, collection: {name})")
     stripped = validate_text(text)
+    old_payload = point.payload or {}
     payload["text"] = stripped
+    payload.update(_payload.system_fields_for_update(old_payload, stripped))
     vector = embed(stripped)
     _store.qdrant.upsert(
         collection_name=name,

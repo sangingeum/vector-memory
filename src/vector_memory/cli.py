@@ -17,6 +17,7 @@ from .core import (
     search_memory,
     update_memory,
 )
+from .store import COLLECTION_NAME
 
 app = typer.Typer(
     name="vector-memory",
@@ -111,6 +112,51 @@ def delete(
 ) -> None:
     """Delete a stored memory (point) by ID."""
     _emit(_guard(delete_memory(point_id, collection)))
+
+
+@app.command()
+def migrate(
+    collection: str = typer.Option("", help="Collection to migrate (default: configured)."),
+    assume_model: str = typer.Option(
+        "", help="Record this embedding model on migrated points (e.g. qwen3-embedding:8b). "
+        "Only set it when you are certain of the model that produced the vectors."
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Report what would change without writing."
+    ),
+) -> None:
+    """Backfill system fields on legacy points (non-destructive, resumable)."""
+    from .migrate import migrate_collection
+
+    name = collection if collection.strip() else COLLECTION_NAME
+    if dry_run:
+        # Read-only probe: how many points lack system fields?
+        from . import store as _store
+        from .payload import CREATED_TS
+
+        total, legacy = 0, 0
+        offset = None
+        while True:
+            batch, offset = _store.qdrant.scroll(
+                collection_name=name, limit=256, offset=offset,
+                with_payload=True, with_vectors=False,
+            )
+            if not batch:
+                break
+            total += len(batch)
+            legacy += sum(1 for p in batch if CREATED_TS not in (p.payload or {}))
+            if offset is None:
+                break
+        typer.echo(f"dry-run: {legacy}/{total} points in {name!r} would be migrated (nothing written)")
+        return
+    _emit(_guard(_fmt_summary(migrate_collection(name, assume_model=assume_model))))
+
+
+def _fmt_summary(summary: dict) -> str:
+    return (
+        f"Migrated {summary['migrated']}/{summary['scanned']} points in "
+        f"{summary['collection']!r}; embed_model: {summary['embed_model']}"
+    )
 
 
 @app.command(name="list-collections")
