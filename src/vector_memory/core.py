@@ -83,28 +83,87 @@ def _apply_explicit_metadata(
 
 def save_memory(text: str, metadata: str | dict[str, Any] = "{}",
                 collection: str = "", project: str = "", type: str = "",
-                tags: list[str] | None = None) -> str:
+                tags: list[str] | None = None,
+                supersedes: list[str] | None = None) -> str:
     """Save a document/scenario outcome into the vector DB.
 
     Raises :class:`ArgumentError` on invalid input (nothing written).
+    ``supersedes`` lists point IDs replaced by this memory: those points are
+    marked ``_status=superseded`` with ``_superseded_by`` pointing here, and
+    this point records them under ``_supersedes``. Unknown IDs fail before
+    anything is written.
     """
     stripped = validate_text(text)
     meta_dict = parse_metadata(metadata)
     _apply_explicit_metadata(meta_dict, project=project, type=type, tags=tags)
     try:
         name = _apply_collection(collection)
+        if supersedes:
+            _validate_supersede_targets(name, supersedes)
         vector = embed(stripped)
         point_id = str(uuid.uuid4())
         meta_dict["text"] = stripped
         meta_dict.update(_payload.system_fields_for_new_text(stripped, EMBED_MODEL, _agent_id()))
+        if supersedes:
+            meta_dict[_payload.SUPERSEDES] = list(supersedes)
         _store.qdrant.upsert(
             collection_name=name,
             points=[PointStruct(id=point_id, vector=vector, payload=meta_dict)],
             wait=True,
         )
+        if supersedes:
+            _mark_superseded(name, supersedes, point_id)
         return _with_lenient_warning(f"Memory saved (ID: {point_id}, collection: {name})")
     except Exception as exc:
         raise _backend_or_internal(exc) from exc
+
+
+def _validate_supersede_targets(collection_name: str, supersedes: list[str]) -> None:
+    """All supersede targets must exist before anything is written."""
+    existing = _store.qdrant.retrieve(
+        collection_name=collection_name, ids=list(supersedes), with_payload=False
+    )
+    found = {str(r.id) for r in existing}
+    missing = [pid for pid in supersedes if str(pid) not in found]
+    if missing:
+        raise NotFoundError(f"supersede target(s) not found: {', '.join(missing)}")
+
+
+def _mark_superseded(collection_name: str, supersedes: list[str], new_id: str) -> None:
+    """Flip the superseded points' lifecycle fields after the new point lands."""
+    _store.qdrant.set_payload(
+        collection_name=collection_name,
+        payload={
+            _payload.STATUS: _payload.STATUS_SUPERSEDED,
+            _payload.SUPERSEDED_BY: new_id,
+        },
+        points=list(supersedes),
+        wait=True,
+    )
+
+
+def set_status(point_ids: list[str], status: str, collection: str = "") -> str:
+    """Archive or unarchive points (``_status`` lifecycle field)."""
+    if status not in (_payload.STATUS_ARCHIVED, _payload.STATUS_ACTIVE):
+        raise ArgumentError(f"status must be 'archived' or 'active' (got {status!r})")
+    name = collection if collection and collection.strip() else COLLECTION_NAME
+    if not _store.qdrant.collection_exists(name):
+        raise NotFoundError(f"collection {name!r} does not exist")
+    existing = _store.qdrant.retrieve(collection_name=name, ids=point_ids, with_payload=False)
+    found = {str(r.id) for r in existing}
+    missing = [pid for pid in point_ids if str(pid) not in found]
+    if missing:
+        raise NotFoundError(f"point(s) not found: {', '.join(missing)}")
+    fields: dict[str, Any] = {_payload.STATUS: status}
+    fields.update(_payload.system_fields_for_update({}, None))
+    if status == _payload.STATUS_ACTIVE:
+        # Unarchive clears the lifecycle marker entirely (missing = active).
+        _store.qdrant.delete_payload(
+            collection_name=name, keys=[_payload.STATUS], points=point_ids, wait=True
+        )
+    else:
+        _store.qdrant.set_payload(collection_name=name, payload=fields, points=point_ids, wait=True)
+    return f"Status set to {status} for {len(point_ids)} point(s) in {name!r}"
 
 
 def _with_lenient_warning(result: str) -> str:
@@ -141,14 +200,22 @@ def save_memories(texts: list[str], metadata: str | dict[str, Any] = "{}",
 
 
 def search_memory(query: str, limit: int = 3, filter: str | dict[str, Any] = "",
-                  collection: str = "", project: str = "") -> str:
-    """Search for stored documents/scenarios similar to a query."""
+                  collection: str = "", project: str = "",
+                  include_inactive: bool = False) -> str:
+    """Search for stored documents/scenarios similar to a query.
+
+    Superseded/archived memories are hidden by default (legacy points without
+    a ``_status`` field stay visible); ``include_inactive=True`` returns all
+    with a ``status=...`` annotation.
+    """
     qdrant_filter, warning = build_filter(filter)
     if project:
         proj_cond = FieldCondition(key="project", match=MatchValue(value=project))
         must: list[Any] = list(qdrant_filter.must or []) if qdrant_filter else []
         must.append(proj_cond)
         qdrant_filter = Filter(must=must)
+    if not include_inactive:
+        qdrant_filter = _payload.active_filter(qdrant_filter)
     try:
         name = collection if collection and collection.strip() else COLLECTION_NAME
         query_vector = embed(query)
@@ -170,10 +237,15 @@ def search_memory(query: str, limit: int = 3, filter: str | dict[str, Any] = "",
     for hit in hits:
         payload = hit.payload or {}
         text = payload.get("text", "")
-        meta = {k: v for k, v in payload.items() if k != "text"}
+        status = payload.get(_payload.STATUS)
+        status_note = ""
+        if status:
+            superseded_by = payload.get(_payload.SUPERSEDED_BY)
+            status_note = f" [status={status}" + (f" -> {superseded_by}" if superseded_by else "") + "]"
+        meta = {k: v for k, v in payload.items() if k != "text" and not k.startswith("_")}
         meta_str = json.dumps(meta, ensure_ascii=False) if meta else "{}"
         out.append(
-            f"- [ID: {hit.id}] [score: {hit.score:.4f}] "
+            f"- [ID: {hit.id}] [score: {hit.score:.4f}]{status_note} "
             f"metadata: {meta_str} | content: {text}"
         )
     return _append_warning("\n".join(out), warning)

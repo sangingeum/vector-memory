@@ -1,9 +1,9 @@
-"""FastMCP server: thin tool adapters over vector_memory.core (ruling §3).
+"""FastMCP server: thin tool adapters over vector_memory.core.
 
-Each tool handler is a one-line adapter calling exactly one core op; the six
-tools map 1:1 to core functions of the same name (MCP tool names are part of
-the public contract and are unchanged). Embedding/Qdrant access lives in the
-``embedding`` and ``store`` modules.
+Each tool handler is a one-line adapter calling exactly one core op; the
+tools map 1:1 to core functions of the same name (existing MCP tool names are
+part of the public contract and are unchanged). Embedding/Qdrant access lives
+in the ``embedding`` and ``store`` modules.
 """
 
 from __future__ import annotations
@@ -39,12 +39,22 @@ def save_memory(text: str, metadata: str | dict[str, Any] = "{}",
     """Save a new document or scenario outcome into the vector DB.
 
     metadata may be a JSON string (e.g. '{"source": "doc1", "tags": ["a"]}')
-    or a JSON object — both are accepted. On parse failure an empty dict is
-    stored instead and a warning is returned alongside the result. If
-    collection is given, the memory is stored there (created automatically
-    if missing; default: the server-configured collection).
+    or a JSON object — both are accepted. If collection is given, the memory
+    is stored there (created automatically if missing; default: the
+    server-configured collection).
     """
     return _core.call(_core.save_memory, text, metadata, collection)
+
+
+@mcp.tool()
+def save_superseding(text: str, supersedes: list[str],
+                     metadata: str | dict[str, Any] = "{}",
+                     collection: str = "") -> str:
+    """Save a memory that REPLACES the listed point IDs: they are marked
+    superseded (hidden from default search, kept for audit) and this memory
+    records them under _supersedes. Use when a fact has changed. Unknown IDs
+    fail before anything is written."""
+    return _core.call(_core.save_memory, text, metadata, collection, supersedes=supersedes)
 
 
 @mcp.tool()
@@ -60,12 +70,27 @@ def save_memories(texts: list[str], metadata: str | dict[str, Any] = "{}",
 
 @mcp.tool()
 def search_memory(query: str, limit: int = 3, filter: str | dict[str, Any] = "",
-                  collection: str = "", project: str = "") -> str:
+                  collection: str = "", project: str = "",
+                  include_inactive: bool = False) -> str:
     """Search the vector DB for past documents/scenarios semantically similar
-    to a query. filter is an optional payload filter (JSON string or object).
-    project (optional) ANDs an exact-match condition on the payload 'project'
-    field for project-scoped memory."""
-    return _core.call(_core.search_memory, query, limit, filter, collection, project)
+    to a query. Superseded/archived memories are hidden unless
+    include_inactive=True (hits are annotated with their status). filter is an
+    optional payload filter (JSON string or object). project (optional) ANDs
+    an exact-match condition on the payload 'project' field."""
+    return _core.call(_core.search_memory, query, limit, filter, collection, project,
+                      include_inactive)
+
+
+@mcp.tool()
+def archive(point_ids: list[str], collection: str = "") -> str:
+    """Archive memories by ID: hidden from default search, kept for audit."""
+    return _core.call(_core.set_status, point_ids, "archived", collection)
+
+
+@mcp.tool()
+def unarchive(point_ids: list[str], collection: str = "") -> str:
+    """Return archived memories to active status."""
+    return _core.call(_core.set_status, point_ids, "active", collection)
 
 
 @mcp.tool()

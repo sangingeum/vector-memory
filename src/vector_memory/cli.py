@@ -16,6 +16,7 @@ from .core import (
     save_memories,
     save_memory,
     search_memory,
+    set_status,
     update_memory,
 )
 from .store import COLLECTION_NAME
@@ -58,9 +59,14 @@ def save(
     tags: list[str] = typer.Option([], help="Repeatable; each becomes one entry of metadata 'tags'."),
     metadata: str = typer.Option("{}", help="Metadata as JSON string, e.g. '{\"tags\": [\"a\"]}'."),
     collection: str = typer.Option("", help="Target collection (created if missing)."),
+    supersedes: str = typer.Option(
+        "", help="Comma-separated point IDs this memory replaces "
+        "(they are marked superseded and hidden from default search)."),
 ) -> None:
     """Save a document/scenario outcome into the vector DB."""
-    typer.echo(_guard(save_memory(text, metadata, collection, project=project, type=type, tags=list(tags))))
+    supersedes_ids = [s.strip() for s in supersedes.split(",") if s.strip()] if supersedes else None
+    typer.echo(_guard(save_memory(text, metadata, collection, project=project, type=type,
+                                  tags=list(tags), supersedes=supersedes_ids)))
 
 
 @app.command()
@@ -90,9 +96,13 @@ def search(
     filter: str = typer.Option("", help="Payload filter as JSON, e.g. '{\"tags\": [\"x\"]}'."),
     collection: str = typer.Option("", help="Collection to search (default: configured)."),
     project: str = typer.Option("", help="Project-scoped memory (payload project= match)."),
+    include_inactive: bool = typer.Option(
+        False, "--include-inactive",
+        help="Include superseded/archived memories (annotated with status)."),
 ) -> None:
     """Search stored documents/scenarios semantically similar to a query."""
-    _emit(_guard(search_memory(query, limit, filter, collection, project)))
+    _emit(_guard(search_memory(query, limit, filter, collection, project,
+                               include_inactive=include_inactive)))
 
 
 @app.command()
@@ -173,6 +183,26 @@ def _fmt_summary(summary: dict) -> str:
         f"Migrated {summary['migrated']}/{summary['scanned']} points in "
         f"{summary['collection']!r}; embed_model: {summary['embed_model']}"
     )
+
+
+@app.command()
+def archive(
+    point_ids: str = typer.Argument(..., help="Comma-separated point IDs to archive."),
+    collection: str = typer.Option("", help="Collection holding the points."),
+) -> None:
+    """Archive memories (hidden from default search; kept for audit)."""
+    ids = [s.strip() for s in point_ids.split(",") if s.strip()]
+    _emit(_guard(set_status(ids, "archived", collection)))
+
+
+@app.command(name="unarchive")
+def unarchive_cmd(
+    point_ids: str = typer.Argument(..., help="Comma-separated point IDs to unarchive."),
+    collection: str = typer.Option("", help="Collection holding the points."),
+) -> None:
+    """Unarchive memories (return them to active)."""
+    ids = [s.strip() for s in point_ids.split(",") if s.strip()]
+    _emit(_guard(set_status(ids, "active", collection)))
 
 
 @app.command(name="list-collections")

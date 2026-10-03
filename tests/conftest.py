@@ -130,7 +130,7 @@ class FakeQdrant:
         def keep(payload):
             if not query_filter:
                 return True
-            for cond in query_filter.must:
+            for cond in query_filter.must or []:
                 val = payload.get(cond.key)
                 match = cond.match
                 if getattr(match, "any", None) is not None:
@@ -138,6 +138,18 @@ class FakeQdrant:
                         return False
                 else:
                     if val != match.value:
+                        return False
+            for cond in query_filter.must_not or []:
+                val = payload.get(cond.key)
+                match = cond.match
+                if getattr(match, "any", None) is not None:
+                    if isinstance(val, list):
+                        if any(v in val for v in match.any):
+                            return False
+                    elif val in match.any:
+                        return False
+                else:
+                    if val == match.value:
                         return False
             return True
 
