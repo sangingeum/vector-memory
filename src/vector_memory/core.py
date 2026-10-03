@@ -17,11 +17,12 @@ from typing import Any
 from qdrant_client.models import Filter, PointStruct
 
 from . import dedupe as _dedupe
+from . import embedding as _embedding
 from . import payload as _payload
 from . import reembed as _fingerprint
 from . import sensitive as _sensitive
 from . import store as _store
-from .embedding import embed, embed_many
+from .embedding import embed
 from .errors import (
     ArgumentError,
     NotFoundError,
@@ -290,31 +291,33 @@ def save_memories(texts: list[str], metadata: str | dict[str, Any] = "{}",
     from .embedding import EMBED_BATCH
     from .errors import BackendError
 
+    # Per-item failure accumulation (VM-11 spec): a failed batch marks its
+    # indices failed and the loop CONTINUES; the good points are still saved.
     failed_indices: list[int] = []
-    saved_count = 0
     points_all: list[PointStruct] = []
     for start in range(0, len(stripped), EMBED_BATCH):
         chunk = stripped[start : start + EMBED_BATCH]
         try:
-            vectors = embed_many(chunk)
-        except Exception as exc:
-            raise BackendError(f"batch {start // EMBED_BATCH} embed failed: {exc}") from exc
+            vectors = _embedding.embed_many(chunk)
+        except Exception:
+            failed_indices.extend(range(start, start + len(chunk)))
+            continue
         for offset, (text, vector) in enumerate(zip(chunk, vectors, strict=True)):
             index = start + offset
-            if vector is None:
+            if not vector:
                 failed_indices.append(index)
                 continue
             payload = dict(meta_dict)
             payload["text"] = text
             payload.update(_payload.system_fields_for_new_text(text, current_embed_model(), _agent_id()))
             points_all.append(PointStruct(id=str(uuid.uuid4()), vector=vector, payload=payload))
-            saved_count += 1
     if points_all:
         _store.qdrant.upsert(collection_name=name, points=points_all, wait=True)
-    ids = [str(p.id) for p in points_all]
     if failed_indices:
+        # The good points ARE saved; the caller learns exactly which failed.
         raise BackendError(
-            f"saved {saved_count}/{len(stripped)}; failed: {failed_indices}")
+            f"saved {len(points_all)}/{len(stripped)}; failed: {failed_indices}")
+    ids = [str(p.id) for p in points_all]
     return _with_lenient_warning(
         f"Saved {len(points_all)} memories (collection: {name}, IDs: {', '.join(ids)})"
     )
