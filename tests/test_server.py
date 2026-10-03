@@ -375,6 +375,9 @@ def test_legacy_embed_fallback(monkeypatch):
             calls.append(prompt)
             return {"embedding": [0.5, 0.5]}
 
+        def embed(self, model=None, input=None, **kw):
+            raise AttributeError("legacy server: no embed()")
+
     monkeypatch.setattr(emb, "ollama_client", LegacyOnly())
     assert emb.embed("hello") == [0.5, 0.5]
     assert emb.embed_many(["a", "b"]) == [[0.5, 0.5], [0.5, 0.5]]

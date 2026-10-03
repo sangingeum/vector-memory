@@ -270,17 +270,36 @@ def save_memories(texts: list[str], metadata: str | dict[str, Any] = "{}",
         raise ArgumentError("texts must all be strings")
     stripped = [validate_text(t, where=f"texts[{i}]") for i, t in enumerate(texts)]
     name = _apply_collection(collection)
-    vectors = embed_many(stripped)
-    points = []
-    for text, vector in zip(stripped, vectors, strict=True):
-        payload = dict(meta_dict)
-        payload["text"] = text
-        payload.update(_payload.system_fields_for_new_text(text, current_embed_model(), _agent_id()))
-        points.append(PointStruct(id=str(uuid.uuid4()), vector=vector, payload=payload))
-    _store.qdrant.upsert(collection_name=name, points=points, wait=True)
-    ids = [str(p.id) for p in points]
+    from .embedding import EMBED_BATCH
+    from .errors import BackendError
+
+    failed_indices: list[int] = []
+    saved_count = 0
+    points_all: list[PointStruct] = []
+    for start in range(0, len(stripped), EMBED_BATCH):
+        chunk = stripped[start : start + EMBED_BATCH]
+        try:
+            vectors = embed_many(chunk)
+        except Exception as exc:
+            raise BackendError(f"batch {start // EMBED_BATCH} embed failed: {exc}") from exc
+        for offset, (text, vector) in enumerate(zip(chunk, vectors, strict=True)):
+            index = start + offset
+            if vector is None:
+                failed_indices.append(index)
+                continue
+            payload = dict(meta_dict)
+            payload["text"] = text
+            payload.update(_payload.system_fields_for_new_text(text, current_embed_model(), _agent_id()))
+            points_all.append(PointStruct(id=str(uuid.uuid4()), vector=vector, payload=payload))
+            saved_count += 1
+    if points_all:
+        _store.qdrant.upsert(collection_name=name, points=points_all, wait=True)
+    ids = [str(p.id) for p in points_all]
+    if failed_indices:
+        raise BackendError(
+            f"saved {saved_count}/{len(stripped)}; failed: {failed_indices}")
     return _with_lenient_warning(
-        f"Saved {len(points)} memories (collection: {name}, IDs: {', '.join(ids)})"
+        f"Saved {len(points_all)} memories (collection: {name}, IDs: {', '.join(ids)})"
     )
 
 
