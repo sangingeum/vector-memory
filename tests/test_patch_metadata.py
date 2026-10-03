@@ -61,6 +61,40 @@ def test_patch_unknown_point(local_qdrant):
                             {"tags": ["x"]}, collection="vm_patch")
 
 
+def test_patch_rejects_system_keys_in_set(local_qdrant):
+    from vector_memory import core
+    from vector_memory.errors import ArgumentError
+
+    out = core.save_memory("sys patch", {"source": "a"}, collection="vm_patch")
+    pid = out.split("ID: ")[1].split(",")[0].strip()
+    with pytest.raises(ArgumentError, match="'_status' is invalid"):
+        core.patch_metadata(pid, {"_status": "active"}, collection="vm_patch")
+    with pytest.raises(ArgumentError, match="'_created_ts' is invalid"):
+        core.patch_metadata(pid, {"_created_ts": 1}, collection="vm_patch")
+
+
+def test_patch_rejects_text_in_set(local_qdrant):
+    from vector_memory import core
+    from vector_memory.errors import ArgumentError
+
+    out = core.save_memory("text patch", {}, collection="vm_patch")
+    pid = out.split("ID: ")[1].split(",")[0].strip()
+    with pytest.raises(ArgumentError, match="cannot change 'text'"):
+        core.patch_metadata(pid, {"text": "stale vector incoming"}, collection="vm_patch")
+
+
+def test_patch_rejects_system_and_text_keys_in_unset(local_qdrant):
+    from vector_memory import core
+    from vector_memory.errors import ArgumentError
+
+    out = core.save_memory("unset guard", {}, collection="vm_patch")
+    pid = out.split("ID: ")[1].split(",")[0].strip()
+    with pytest.raises(ArgumentError, match="reserved '_' prefix"):
+        core.patch_metadata(pid, unset=["_status"], collection="vm_patch")
+    with pytest.raises(ArgumentError, match="cannot remove 'text'"):
+        core.patch_metadata(pid, unset=["text"], collection="vm_patch")
+
+
 def test_update_merge_metadata(local_qdrant):
     from vector_memory import core
 

@@ -496,6 +496,9 @@ def patch_metadata(point_id: str, set: str | dict[str, Any] = "{}",
 
     ``set`` merges the given keys into the payload; ``unset`` removes keys.
     No embedding call; the vector is untouched; ``_updated_*`` is bumped.
+    ``_``-prefixed (system) keys and ``text`` are rejected in BOTH ``set``
+    and ``unset``: system fields are never caller-settable, and overwriting
+    ``text`` without re-embedding would desynchronize text and vector.
     """
     from .store import pop_last_warning
 
@@ -503,6 +506,22 @@ def patch_metadata(point_id: str, set: str | dict[str, Any] = "{}",
     set_dict = parse_metadata(set) if _has_metadata(set) else {}
     if unset is None:
         unset = []
+    for key in set_dict:
+        if key.startswith("_"):
+            raise ArgumentError(
+                f"patch --set key {key!r} uses the reserved '_' prefix (system fields)")
+        if key == "text":
+            raise ArgumentError(
+                "patch --set cannot change 'text' (would desync text and vector); "
+                "use update --text")
+    for key in unset:
+        if key.startswith("_"):
+            raise ArgumentError(
+                f"patch --unset key {key!r} uses the reserved '_' prefix (system fields)")
+        if key == "text":
+            raise ArgumentError(
+                "patch --unset cannot remove 'text' (would desync text and vector); "
+                "use update --text")
     if not set_dict and not unset:
         raise ArgumentError("nothing to patch — provide --set and/or --unset")
     if not _store.qdrant.collection_exists(name):
