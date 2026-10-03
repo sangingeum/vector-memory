@@ -4,17 +4,18 @@ Persistent **vector memory** for AI agents backed by **Ollama** (embeddings,
 tested with `qwen3-embedding:8b`) and **Qdrant** (vector store). Two entry
 points over the same core (`vector_memory.core`):
 
-- `vector-memory-mcp` — MCP stdio server (six tools, 1:1 with core ops)
+- `vector-memory-mcp` — MCP stdio server (1:1 with core ops)
 - `vector-memory` — one-shot CLI (typer, 1:1 with the same core ops)
 
-It exposes six operations:
+It exposes these operations:
 
 | Tool | Description |
 |---|---|
 | `save_memory(text, metadata, collection, project="", type="", tags=None)` | Embeds `text` via Ollama and upserts it into Qdrant. `metadata` is optional metadata — a JSON object or a JSON string, both accepted — stored alongside the vector. `project`/`type`/`tags` are convenience kwargs merged into the same metadata keys (explicit values win). Optional `collection` targets a specific collection (created on the fly if missing; empty = server default). |
 | `save_memories(texts, metadata, collection, project="", type="", tags=None)` | Batch version: embeds a list of texts in one Ollama call and upserts them as a single batch. `metadata` (object or JSON string) applies to all documents, as do `project`/`type`/`tags`. |
 | `search_memory(query, limit, filter, collection)` | Embeds `query` and returns the `limit` most similar stored memories — each hit includes its point **ID**, similarity **score**, **metadata**, and text, so you can `delete_memory`/`update_memory` straight from search output. Optional `filter` is a payload filter — JSON object or JSON string (see below). |
-| `update_memory(point_id, text, metadata, collection)` | Re-embeds `text` and overwrites the point in place (same ID). Empty `metadata` keeps the existing payload metadata; a JSON object or JSON string replaces it. Nonexistent IDs return an error. |
+| `update_memory(point_id, text, metadata, collection, merge_metadata=False)` | Re-embeds `text` and overwrites the point in place (same ID). Empty `metadata` keeps the existing payload metadata; a JSON object or JSON string replaces it (use `merge_metadata=True` to merge instead). Omit `text` to update metadata without re-embedding. Nonexistent IDs return `NotFoundError`. |
+| `patch_metadata(point_id, set, unset, collection)` | Metadata-only patch: merge `set` keys and/or remove `unset` keys. **No embedding call** — the vector is untouched; `_updated_*` is bumped. |
 | `delete_memory(point_id, collection)` | Deletes the stored memory (point) with the given ID. |
 | `list_collections()` | Lists all existing Qdrant collections. |
 
@@ -113,23 +114,44 @@ uv run mcp dev mcp_server.py
 vector-memory save "text" --project p --type decision --tags x [--metadata '{...}'] [--collection C]
 vector-memory save-many "text A" "text B" --project p [--metadata '{...}'] [--collection C]
 vector-memory search "query" [--limit N] [--filter '{"tags":["x"]}'] [--project p] [--collection C]
-vector-memory update <point-id> --text "new text" [--metadata '{...}']
+vector-memory update <point-id> --text "new text" [--metadata '{...}'] [--merge-metadata]
+vector-memory patch <point-id> --set '{"tags":["x"]}' [--unset key1 --unset key2] [--collection C]
+vector-memory migrate [--collection C] [--assume-model M] [--dry-run]
 vector-memory delete <point-id>
 vector-memory list-collections
 ```
 
 Semantics worth knowing: point IDs are uuid4 — saving identical text twice
-creates two points (dedupe is the caller's job; use `update` to modify in
-place). `update --metadata` replaces the whole payload metadata; pass only
-`--text` to keep it. Search hits include ID + score + metadata + full text.
-`--project`-scoped searches only see memories saved with a `project` metadata
-field. Invalid metadata/filter JSON fails the command (one stderr
-`ArgumentError: ...` line, nothing written); `--lenient` / `VM_LENIENT=1`
-restores the old warn-and-continue behavior.
+currently creates two points (dedupe is the caller's job; use `update` to
+modify in place). `update --metadata` replaces the whole payload metadata
+(`--merge-metadata` merges instead); pass only `--text` to keep it, or omit
+`--text` entirely to patch metadata without re-embedding (`patch` does the
+same with set/unset granularity and never calls the embedder). Search hits
+include ID + score + metadata + full text. `--project`-scoped searches only
+see memories saved with a `project` metadata field. Invalid metadata/filter
+JSON fails the command (one stderr `ArgumentError: ...` line, nothing
+written); `--lenient` / `VM_LENIENT=1` restores the old warn-and-continue
+behavior.
+
+### System payload fields
+
+Every save stamps `_`-prefixed system fields alongside user metadata:
+`_created_ts`/`_updated_ts` (epoch floats), `_created_at`/`_updated_at`
+(ISO-8601), `_content_hash` (sha256 of the normalized text), `_embed_model`,
+and `_agent` (when `VM_AGENT_ID` is set). Lifecycle fields `_status`,
+`_supersedes`, `_superseded_by` are reserved for the supersede/archive
+lifecycle. Legacy points without these fields stay valid; use
+`vector-memory migrate` to backfill them non-destructively (resumable;
+`--dry-run` reports how many points would change; `--assume-model` records
+the embedding model only if you are certain of what produced the vectors).
+Payload indexes (keyword on `project`/`type`/`tags`/`source`/`_status`, float
+on timestamps) are created idempotently when a collection is opened.
 
 ### MCP client config
 
-Add to your client's MCP config (Claude Desktop, Hermes, etc.):
+Add to your client's MCP config (Claude Desktop, Hermes, etc.). The stdio
+server entry point is **`vector-memory-mcp`** (the `vector-memory` command is
+the CLI, not the server):
 
 ```json
 {
@@ -138,7 +160,7 @@ Add to your client's MCP config (Claude Desktop, Hermes, etc.):
       "command": "uv",
       "args": [
         "--directory", "/path/to/vector-memory",
-        "run", "vector-memory"
+        "run", "vector-memory-mcp"
       ],
       "env": {
         "OLLAMA_URL": "http://192.168.X.X:11434",
@@ -160,7 +182,7 @@ mcp:
   servers:
     vector-memory:
       command: uv
-      args: ["--directory", "/path/to/vector-memory", "run", "vector-memory"]
+      args: ["--directory", "/path/to/vector-memory", "run", "vector-memory-mcp"]
 ```
 
 ## Testing
@@ -183,6 +205,6 @@ uv run python scripts/live_smoke.py
 
 - All diagnostics are logged to **stderr**; stdout is reserved for the stdio
   MCP transport.
-- Dependency pins: `numpy<2`, `qdrant-client<1.15`, `mcp[cli]<2` — chosen for
-  compatibility with older x86-64 hardware (pre-x86-64-v2) and the mcp v2
-  FastMCP rename. Adjust only with reason.
+- Dependency pins: `qdrant-client>=1.15,<2`, `mcp[cli]<2`, numpy 1.x on
+  Python < 3.13 — chosen for compatibility with older x86-64 hardware
+  (pre-x86-64-v2) and the mcp v2 FastMCP rename. Adjust only with reason.
