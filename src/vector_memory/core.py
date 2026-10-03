@@ -18,6 +18,7 @@ from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 from . import dedupe as _dedupe
 from . import payload as _payload
 from . import reembed as _fingerprint
+from . import sensitive as _sensitive
 from . import store as _store
 from .embedding import embed, embed_many
 from .errors import ArgumentError, NotFoundError, format_error
@@ -106,9 +107,11 @@ def save_memory(text: str, metadata: str | dict[str, Any] = "{}",
     anything is written. Identical normalized text is idempotent (same point
     refreshed) unless ``allow_duplicate``; near-duplicates (calibrated
     threshold, default 0.985) are reported by ``on_similar`` mode
-    (warn|skip|error) — never merged.
+    (warn|skip|error) — never merged. Text matching a high-confidence secret
+    rule raises :class:`SensitiveContentError` before any write.
     """
     stripped = validate_text(text)
+    _sensitive.check_text(stripped)
     meta_dict = parse_metadata(metadata)
     _apply_explicit_metadata(meta_dict, project=project, type=type, tags=tags)
     try:
@@ -413,7 +416,8 @@ def update_memory(point_id: str, text: str | None = None,
             _store.qdrant.set_payload(collection_name=name, payload=payload, points=[point_id])
         return _with_lenient_warning(f"Memory updated (ID: {point_id}, collection: {name})")
     stripped = validate_text(text)
-    old_payload = point.payload or {}
+    _sensitive.check_text(stripped)
+    old_payload = dict(point.payload or {})
     payload["text"] = stripped
     payload.update(_payload.system_fields_for_update(old_payload, stripped))
     vector = embed(stripped)

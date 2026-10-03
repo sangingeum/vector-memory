@@ -68,12 +68,24 @@ def save(
         help="Force a new point even if identical normalized text already exists."),
     on_similar: str = typer.Option(
         "", help="Near-duplicate behavior: warn (default) | skip | error."),
+    allow_sensitive: bool = typer.Option(
+        False, "--allow-sensitive",
+        help="Override the secret-detection guard (use only for false positives)."),
 ) -> None:
     """Save a document/scenario outcome into the vector DB."""
     supersedes_ids = [s.strip() for s in supersedes.split(",") if s.strip()] if supersedes else None
-    typer.echo(_guard(save_memory(text, metadata, collection, project=project, type=type,
-                                  tags=list(tags), supersedes=supersedes_ids,
-                                  allow_duplicate=allow_duplicate, on_similar=on_similar)))
+
+    _set_override = "VM_ALLOW_SENSITIVE"
+    import os as _os
+    if allow_sensitive:
+        _os.environ[_set_override] = "1"
+    try:
+        typer.echo(_guard(save_memory(text, metadata, collection, project=project, type=type,
+                                      tags=list(tags), supersedes=supersedes_ids,
+                                      allow_duplicate=allow_duplicate, on_similar=on_similar)))
+    finally:
+        if allow_sensitive:
+            _os.environ.pop(_set_override, None)
 
 
 @app.command()
