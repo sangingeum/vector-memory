@@ -159,6 +159,32 @@ restores the old warn-and-continue behavior. Text matching a high-confidence
 secret rule is rejected (`SensitiveContentError`; the value is never echoed;
 `--allow-sensitive` overrides — use only for false positives).
 
+### MCP tools vs. CLI (deliberate subset)
+
+The MCP stdio server (`vector-memory-mcp`) exposes the memory operations an
+agent needs at conversation time; operations that are administrative,
+destructive-by-design, or one-shot-maintenance stay **CLI-only** (deliberate
+1:1 *subset*, not an omission):
+
+| MCP tool | Notes |
+|---|---|
+| `save_memory` | dedupe idempotency, `allow_duplicate`, `on_similar` |
+| `save_superseding` | replaces listed IDs (lifecycle) |
+| `save_chunked` | long-text chunking into `_group_id` groups |
+| `save_memories` | batch save |
+| `search_memory` | full parity with CLI search: `since/before/tag/type/source/agent`, `min_score`, `recency_weight`, `mmr`, `brief`, `max_chars`, `output_format`, `collapse_groups`, `include_inactive` |
+| `get`, `list_memories`, `count`, `values` | read/browse with convenience filters |
+| `update_memory`, `patch_metadata` | in-place edit; metadata-only patch |
+| `archive`, `unarchive` | lifecycle |
+| `delete_memory`, `list_collections` | single-ID delete; collection list |
+
+**CLI-only (not in MCP):** `migrate`, `reembed`, `delete-by-filter`,
+`delete-collection`, multi-ID `delete`, `export`/`import`, `consolidate`,
+`stats`, `doctor` — one-shot maintenance/backup/destructive commands that
+belong in a shell, not a model-driven tool surface. Any MCP tool failure
+raises inside the handler so MCP clients receive a proper error result
+(`isError`), not a successful-looking string.
+
 ### System payload fields
 
 Every save stamps `_`-prefixed system fields alongside user metadata:
@@ -172,6 +198,34 @@ lifecycle. Legacy points without these fields stay valid; use
 the embedding model only if you are certain of what produced the vectors).
 Payload indexes (keyword on `project`/`type`/`tags`/`source`/`_status`, float
 on timestamps) are created idempotently when a collection is opened.
+
+### Backups: JSONL export/import and Qdrant snapshots
+
+`export`/`import` (JSONL) is a portable, human-inspectable backup of memory
+content. For **full-fidelity** backups (vectors, indexes, collection config,
+point versions), use Qdrant's own snapshot API instead — it captures the
+collection exactly and restores as-is:
+
+```bash
+# create a snapshot (full fidelity: vectors, payload indexes, config)
+curl -X POST "http://<qdrant-host>:6333/collections/agent_scenarios/snapshots"
+# list / download
+curl "http://<qdrant-host>:6333/collections/agent_scenarios/snapshots"
+# restore into a new collection from a snapshot file
+curl -X PUT "http://<qdrant-host>:6333/collections/agent_scenarios_restored?priority=snapshot" \
+  -H 'Content-Type: application/octet-stream' --data-binary @<snapshot-file>
+```
+
+Snapshot files land on the Qdrant server's storage (`snapshots/` directory);
+schedule the create call with your backup cron. Prefer snapshots for
+disaster recovery; prefer `export`/`import` when you need the memory content
+in a portable format or must re-embed into a different model/collection.
+
+### Unarchive semantics
+
+`unarchive` of a formerly superseded point **clears the stale
+`_superseded_by` link together with `_status`** — the point re-enters active
+search without a dangling replacement reference.
 
 ### MCP client config
 

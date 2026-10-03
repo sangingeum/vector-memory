@@ -45,8 +45,10 @@ uv run vector-memory <cmd>   # or installed console script
 vector-memory search "topic" [--limit 5] [--project p] [--brief] [--min-score 0.3] [--format compact]
 vector-memory save "text" --project p --type decision --tags x [--summary "..."] [--collection C]
 vector-memory save "text" --supersedes <old-id>        # fact changed
+vector-memory save "long text..." --chunk              # split into _group_id chunks
 vector-memory update <id> --text "refined"             # same fact, refined
 vector-memory patch <id> --set '{"tags":["x"]}'        # metadata only, no re-embed
+vector-memory consolidate --project p                  # read-only near-duplicate groups
 vector-memory archive <id>          # hide without deleting
 vector-memory get <id>              # full text + metadata
 vector-memory list [--project p] [--limit 25]          # browse (no embedding call)
@@ -68,7 +70,21 @@ vector-memory doctor                # backend health check
   (ArgumentError/ConfigError/NotFoundError/ConflictError/SensitiveContentError/BackendError).
 - `--lenient` / `VM_LENIENT=1` restores legacy warn-and-continue — avoid.
 - Bulk deletion (`delete-by-filter`) is DRY-RUN by default; real deletion
-  needs `--no-dry-run --yes`.
+  needs `--no-dry-run --yes`. MCP exposes a deliberate subset of the CLI
+  (memory operations); administrative/destructive commands are CLI-only.
+
+## Fix-round additions (2026-10-04)
+
+- `save --chunk` splits oversized text into sentence-boundary chunks sharing
+  a `_group_id` (Hangul-aware); `search --collapse-groups` returns the best
+  chunk per group.
+- `consolidate` lists near-duplicate candidate groups (read-only); YOU decide
+  and merge via `save --supersedes`.
+- `--lenient` and `--summary` exist as real save flags.
+- Every command accepts `--json` (`{"schema": 1}` envelope); usage errors
+  exit 2, failures exit 1.
+- MCP tool failures surface as isError (the handler raises) — never as a
+  successful result with error text.
 - Every save stamps system fields (`_created_ts`, `_content_hash`,
   `_embed_model`, ...). `migrate` backfills legacy points non-destructively.
 

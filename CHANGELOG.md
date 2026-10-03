@@ -3,6 +3,59 @@
 All notable changes to vector-memory are documented here.
 Format follows Keep a Changelog; versions are informal until 1.0.
 
+## Unreleased — fix round (2026-10-04)
+
+Fixes from the two-axis review (`docs/review-improvement-round-2026-10-04.md`,
+PASS-WITH-NOTES). B-1 (production fixture on GitHub) is EXCLUDED — owner
+decision pending; nothing was touched under `docs/fixtures/`.
+
+### Fixed
+- **B-2 MCP isError**: `call()` now propagates typed errors — FastMCP marks
+  a tool result as an error only when the handler raises; previously every
+  failure reached MCP clients as a successful result. Test added.
+- **B-3 legacy-duplicate catch**: before the uuid5 idempotent path, points
+  matching `_content_hash` are looked up via scroll filter and refreshed —
+  migrated legacy points no longer duplicate on re-save.
+- **B-5 patch validation**: `_`-prefixed system keys and `text` are rejected
+  in BOTH `patch --set` and `--unset` (no more system-field deletion or
+  text/vector desync).
+- **B-6 partial-failure contract**: implemented per VM-11 spec — a failed
+  embed batch marks its indices and the loop CONTINUES; good points land;
+  `BackendError: saved N/M; failed: [4, 11]` is raised after the upsert.
+  Mocked-failure tests cover the spec message format.
+- **B-10** non-string metadata raises `ArgumentError` (was silent `{}`).
+- **B-11** model-mismatch check fetches ONE point via a scroll filter on
+  `_embed_model` existing — legacy points can no longer mask a recorded
+  model behind them.
+- **B-13** `list_collections` raises `BackendError` (exit 1) instead of
+  returning failure text on stdout.
+- **B-14** `KeyError` paths in `migrate`/`delete-collection` raise
+  `NotFoundError` per taxonomy.
+- **B-17** unarchive of a formerly superseded point clears the stale
+  `_superseded_by` link (documented in README).
+
+### Added
+- **VM-14 long-text chunking**: `save --chunk [--chunk-chars --overlap]`
+  splits oversized text on sentence boundaries (Hangul-aware `다.`/`요.`/
+  `?`/`!`/newlines) into points sharing `_group_id` with `_chunk_index`;
+  `search --collapse-groups` returns only the best chunk per group. MCP:
+  `save_chunked`.
+- **VM-15 consolidate**: read-only greedy cosine clustering of active points
+  producing candidate groups with a `--supersedes` suggestion; never writes.
+- **B-4** `--lenient` and `--summary` are real `save` flags (docs promised
+  them; env-only/absent before).
+- **B-8** GitHub Actions workflow: `uv sync --frozen`, ruff, `pytest -m "not live"`.
+- **B-12** `--json` on every remaining command; usage errors exit 2.
+- **B-16** convenience flags (`--tag/--type/--source/--since/--before`) wired
+  into `list`/`count`/`delete-by-filter`; MCP `search_memory` now exposes all
+  landed search enhancements (full CLI parity).
+
+### Documented
+- **B-7** README documents the MCP surface as a deliberate CLI subset (which
+  tools exist and why; administrative/destructive commands are CLI-only).
+- **B-15** README Qdrant snapshot section (full-fidelity backups vs. JSONL).
+- **B-9** this report claims only what is in the tree (verified by tests).
+
 ## Unreleased — improvement round (2026-10-03/04)
 
 ### Added
