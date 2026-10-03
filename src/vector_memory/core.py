@@ -22,7 +22,11 @@ from . import reembed as _fingerprint
 from . import sensitive as _sensitive
 from . import store as _store
 from .embedding import embed, embed_many
-from .errors import ArgumentError, NotFoundError, format_error
+from .errors import (
+    ArgumentError,
+    NotFoundError,
+    VectorMemoryError,
+)
 from .store import (
     COLLECTION_NAME,
     build_filter,
@@ -33,15 +37,19 @@ from .validation import validate_text
 
 
 def call(op, *args, **kwargs) -> str:
-    """Run a core op for an MCP tool; failures become ``ErrorType: ...`` text.
+    """Run a core op for an MCP tool.
 
-    The FastMCP wrapper converts a raised exception into a tool error
-    (``isError``) whose content is this single-line text.
+    Failures PROPAGATE: FastMCP marks a tool result as an error (``isError``)
+    only when the handler raises, so swallowing the exception would present
+    every failure to MCP clients as a successful result. The raised
+    exception's message is the single-line ``ErrorType: ...`` text.
     """
     try:
         return op(*args, **kwargs)
-    except Exception as exc:  # boundary error contract
-        return format_error(exc)
+    except VectorMemoryError:
+        raise  # typed error — FastMCP surfaces it as isError with the message
+    except Exception as exc:
+        raise _backend_or_internal(exc) from exc
 
 
 def _append_warning(result: str, warning: str | None) -> str:
@@ -598,11 +606,17 @@ def delete_memory(point_id: str, collection: str = "") -> str:
 
 
 def list_collections() -> str:
-    """List all collections currently present in Qdrant."""
+    """List all collections currently present in Qdrant.
+
+    Backend failures raise :class:`BackendError` (output contract: a failure
+    is never rendered as a successful result string).
+    """
+    from .errors import BackendError
+
     try:
         collections = _store.qdrant.get_collections().collections
-        if not collections:
-            return "No collections found."
-        return "Collections: " + ", ".join(c.name for c in collections)
     except Exception as exc:
-        return f"Failed to list collections: {exc}"
+        raise BackendError(f"list collections failed: {exc}") from exc
+    if not collections:
+        return "No collections found."
+    return "Collections: " + ", ".join(c.name for c in collections)

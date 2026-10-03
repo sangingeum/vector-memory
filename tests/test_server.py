@@ -357,10 +357,11 @@ def test_list_collections_empty_message(env):
 
 
 def test_list_collections_error_is_english(env, monkeypatch):
+    from vector_memory.errors import BackendError
     fq, _ = env
     monkeypatch.setattr(fq, "get_collections", lambda: (_ for _ in ()).throw(RuntimeError("connection refused")))
-    out = s.list_collections()
-    assert out.startswith("Failed to list collections")
+    with pytest.raises(BackendError, match="connection refused"):
+        s.list_collections()
 
 
 # ---------------------------------------------------------------------------
