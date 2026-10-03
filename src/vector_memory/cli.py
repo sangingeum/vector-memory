@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import typer
 
-from . import browse, bulk
+from . import backup, browse, bulk
 from .browse import get_memory
 from .core import (
     delete_many,
@@ -382,6 +382,34 @@ def values(
 ) -> None:
     """Discover distinct values of a metadata field (schema in use)."""
     _run_cli(browse.field_values, field, collection, filter, limit, project)
+
+
+@app.command()
+def export(
+    collection: str = typer.Option("", help="Collection to export."),
+    with_vectors: bool = typer.Option(False, "--with-vectors", help="Include vectors (large)."),
+) -> None:
+    """Export memories as JSONL to stdout (pipe to a file for backup)."""
+    _run_cli(backup.export_memories, collection, with_vectors)
+
+
+@app.command()
+def import_memories(
+    path: str = typer.Argument(..., help="JSONL file produced by `export` ('-' = stdin)."),
+    collection: str = typer.Option("", help="Target collection (default: configured)."),
+    reembed: bool = typer.Option(False, "--reembed", help="Re-embed all texts with the current model."),
+    on_conflict: str = typer.Option("skip", help="skip | overwrite existing IDs."),
+) -> None:
+    """Import a JSONL memory export (full fidelity with vectors)."""
+    import pathlib
+
+    if path == "-":
+        import sys
+
+        data = sys.stdin.read()
+    else:
+        data = pathlib.Path(path).read_text(encoding="utf-8")
+    _run_cli(backup.import_memories, data, collection, reembed, on_conflict)
 
 
 @app.command()
