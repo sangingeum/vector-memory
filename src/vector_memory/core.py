@@ -92,6 +92,25 @@ def _apply_explicit_metadata(
         meta_dict["tags"] = list(tags)
 
 
+def delete_many(point_ids: list[str], collection: str = "") -> str:
+    """Delete multiple points by ID (missing IDs reported)."""
+    from .browse import _resolve
+    from .errors import NotFoundError
+
+    name = _resolve(collection)
+    records = _store.qdrant.retrieve(collection_name=name, ids=point_ids, with_payload=False)
+    found = {str(r.id) for r in records}
+    missing = [pid for pid in point_ids if str(pid) not in found]
+    if missing == point_ids:
+        raise NotFoundError(f"point(s) not found: {', '.join(missing)}")
+    if found:
+        _store.qdrant.delete(collection_name=name, points_selector=sorted(found), wait=True)
+    out = f"Deleted {len(found)} point(s) from {name!r}"
+    if missing:
+        out += f"; not found: {', '.join(missing)}"
+    return out
+
+
 def save_memory(text: str, metadata: str | dict[str, Any] = "{}",
                 collection: str = "", project: str = "", type: str = "",
                 tags: list[str] | None = None,

@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import typer
 
-from . import browse
+from . import browse, bulk
 from .browse import get_memory
 from .core import (
-    delete_memory,
+    delete_many,
     list_collections,
     patch_metadata,
     save_memories,
@@ -186,12 +186,40 @@ def patch(
 
 @app.command()
 def delete(
-    point_id: str = typer.Argument(..., help="ID of the memory to delete."),
+    point_id: str = typer.Argument(..., help="ID(s) of the memories to delete (comma-separated)."),
     collection: str = typer.Option("", help="Collection holding the point."),
     json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
 ) -> None:
-    """Delete a stored memory (point) by ID."""
-    _run_cli(delete_memory, point_id, collection, json_mode=json_output)
+    """Delete stored memories (points) by ID."""
+    ids = [s.strip() for s in point_id.split(",") if s.strip()]
+    _run_cli(delete_many, ids, collection, json_mode=json_output)
+
+
+@app.command(name="delete-by-filter")
+def delete_by_filter_cmd(
+    filter: str = typer.Option("", help="Payload filter as JSON (required; empty = refused)."),
+    collection: str = typer.Option("", help="Collection to delete from."),
+    project: str = typer.Option("", help="Project filter."),
+    no_dry_run: bool = typer.Option(False, "--no-dry-run", help="Really delete (needs --yes too)."),
+    yes: bool = typer.Option(False, "--yes", help="Confirm real deletion."),
+    json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
+) -> None:
+    """Bulk-delete points matching a filter (DRY-RUN by default)."""
+    _run_cli(bulk.delete_by_filter, filter, collection, project,
+             no_dry_run=no_dry_run, yes=yes, json_mode=json_output)
+
+
+@app.command(name="delete-collection")
+def delete_collection_cmd(
+    name: str = typer.Argument(..., help="Collection to delete."),
+    confirm: str = typer.Option("", "--confirm", help="Repeat the collection name to confirm."),
+    i_know_this_is_default: bool = typer.Option(
+        False, "--i-know-this-is-default",
+        help="Required to delete the configured default collection."),
+) -> None:
+    """Delete a whole collection (double-confirmed)."""
+    _run_cli(bulk.delete_collection, name, confirm,
+             default_collection="" if not i_know_this_is_default else "__force_default__")
 
 
 @app.command()
