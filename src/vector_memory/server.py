@@ -35,15 +35,18 @@ qdrant = qdrant  # noqa: PLW0127 - re-export for test monkeypatching
 
 @mcp.tool()
 def save_memory(text: str, metadata: str | dict[str, Any] = "{}",
-                collection: str = "") -> str:
+                collection: str = "", allow_duplicate: bool = False,
+                on_similar: str = "") -> str:
     """Save a new document or scenario outcome into the vector DB.
 
     metadata may be a JSON string (e.g. '{"source": "doc1", "tags": ["a"]}')
-    or a JSON object — both are accepted. If collection is given, the memory
-    is stored there (created automatically if missing; default: the
-    server-configured collection).
+    or a JSON object — both are accepted. Identical normalized text is
+    idempotent (the existing point is refreshed) unless allow_duplicate.
+    Near-duplicates above the calibrated threshold are reported in the result
+    (never merged); on_similar may be "warn" (default), "skip", or "error".
     """
-    return _core.call(_core.save_memory, text, metadata, collection)
+    return _core.call(_core.save_memory, text, metadata, collection,
+                      allow_duplicate=allow_duplicate, on_similar=on_similar)
 
 
 @mcp.tool()

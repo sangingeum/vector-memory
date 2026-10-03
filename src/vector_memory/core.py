@@ -15,6 +15,7 @@ from typing import Any
 
 from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
+from . import dedupe as _dedupe
 from . import payload as _payload
 from . import reembed as _fingerprint
 from . import store as _store
@@ -93,14 +94,19 @@ def _apply_explicit_metadata(
 def save_memory(text: str, metadata: str | dict[str, Any] = "{}",
                 collection: str = "", project: str = "", type: str = "",
                 tags: list[str] | None = None,
-                supersedes: list[str] | None = None) -> str:
+                supersedes: list[str] | None = None,
+                allow_duplicate: bool = False,
+                on_similar: str = "") -> str:
     """Save a document/scenario outcome into the vector DB.
 
     Raises :class:`ArgumentError` on invalid input (nothing written).
     ``supersedes`` lists point IDs replaced by this memory: those points are
     marked ``_status=superseded`` with ``_superseded_by`` pointing here, and
     this point records them under ``_supersedes``. Unknown IDs fail before
-    anything is written.
+    anything is written. Identical normalized text is idempotent (same point
+    refreshed) unless ``allow_duplicate``; near-duplicates (calibrated
+    threshold, default 0.985) are reported by ``on_similar`` mode
+    (warn|skip|error) — never merged.
     """
     stripped = validate_text(text)
     meta_dict = parse_metadata(metadata)
@@ -110,7 +116,37 @@ def save_memory(text: str, metadata: str | dict[str, Any] = "{}",
         if supersedes:
             _validate_supersede_targets(name, supersedes)
         vector = embed(stripped)
-        point_id = str(uuid.uuid4())
+        similar = _dedupe.find_similar(name, vector, project=project)
+        skip_id = _dedupe.apply_similar_policy(similar, on_similar or _dedupe.on_similar_mode())
+        if skip_id is not None:
+            return _format_similar(
+                _with_lenient_warning(
+                    f"Skipped (near-duplicate of existing memory {skip_id}, collection: {name})"
+                ),
+                similar,
+            )
+        if allow_duplicate:
+            point_id = str(uuid.uuid4())
+        else:
+            point_id = _dedupe.duplicate_point_id(name, stripped)
+            existing = _store.qdrant.retrieve(collection_name=name, ids=[point_id], with_payload=True)
+            if existing:
+                # Idempotent refresh: same normalized text, same point.
+                old_payload = dict(existing[0].payload or {})
+                merged = dict(old_payload)
+                merged.update(meta_dict)
+                merged["text"] = stripped
+                merged.update(_payload.system_fields_for_new_text(stripped, current_embed_model(), _agent_id()))
+                _store.qdrant.upsert(
+                    collection_name=name,
+                    points=[PointStruct(id=point_id, vector=vector, payload=merged)],
+                    wait=True,
+                )
+                out = _with_lenient_warning(
+                    f"Memory saved (ID: {point_id}, collection: {name}; "
+                    "duplicate of existing; updated)"
+                )
+                return _format_similar(out, similar)
         meta_dict["text"] = stripped
         meta_dict.update(_payload.system_fields_for_new_text(stripped, current_embed_model(), _agent_id()))
         if supersedes:
@@ -122,9 +158,26 @@ def save_memory(text: str, metadata: str | dict[str, Any] = "{}",
         )
         if supersedes:
             _mark_superseded(name, supersedes, point_id)
-        return _with_lenient_warning(f"Memory saved (ID: {point_id}, collection: {name})")
+        return _format_similar(
+            _with_lenient_warning(f"Memory saved (ID: {point_id}, collection: {name})"),
+            similar,
+        )
     except Exception as exc:
         raise _backend_or_internal(exc) from exc
+
+
+def _format_similar(result: str, similar: list[dict[str, Any]]) -> str:
+    """Append `similar` candidate lines — reported, never merged."""
+    if not similar:
+        return result
+    lines = [result]
+    for cand in similar:
+        lines.append(f"similar {cand['id']} {cand['score']:.3f} \"{cand['text']}\"")
+    lines.append(
+        "note: similarity does not imply equivalence — check numbers, versions, "
+        "negations before merging (use update or --supersedes)"
+    )
+    return "\n".join(lines)
 
 
 def _validate_supersede_targets(collection_name: str, supersedes: list[str]) -> None:

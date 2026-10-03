@@ -63,11 +63,17 @@ def save(
     supersedes: str = typer.Option(
         "", help="Comma-separated point IDs this memory replaces "
         "(they are marked superseded and hidden from default search)."),
+    allow_duplicate: bool = typer.Option(
+        False, "--allow-duplicate",
+        help="Force a new point even if identical normalized text already exists."),
+    on_similar: str = typer.Option(
+        "", help="Near-duplicate behavior: warn (default) | skip | error."),
 ) -> None:
     """Save a document/scenario outcome into the vector DB."""
     supersedes_ids = [s.strip() for s in supersedes.split(",") if s.strip()] if supersedes else None
     typer.echo(_guard(save_memory(text, metadata, collection, project=project, type=type,
-                                  tags=list(tags), supersedes=supersedes_ids)))
+                                  tags=list(tags), supersedes=supersedes_ids,
+                                  allow_duplicate=allow_duplicate, on_similar=on_similar)))
 
 
 @app.command()
