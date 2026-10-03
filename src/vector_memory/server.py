@@ -81,6 +81,13 @@ def update_memory(point_id: str, text: str | None = None,
 
 
 @mcp.tool()
+def patch_metadata(point_id: str, set: str | dict[str, Any] = "{}",
+                   unset: list[str] | None = None, collection: str = "") -> str:
+    """Patch metadata without re-embedding: merge keys (set) and/or remove keys (unset)."""
+    return _core.call(_core.patch_metadata, point_id, set, unset, collection)
+
+
+@mcp.tool()
 def delete_memory(point_id: str, collection: str = "") -> str:
     """Delete a stored memory (point) from the vector DB by ID."""
     return _core.call(_core.delete_memory, point_id, collection)

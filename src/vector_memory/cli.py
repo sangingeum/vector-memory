@@ -12,6 +12,7 @@ import typer
 from .core import (
     delete_memory,
     list_collections,
+    patch_metadata,
     save_memories,
     save_memory,
     search_memory,
@@ -99,10 +100,25 @@ def update(
     point_id: str = typer.Argument(..., help="ID of the memory to update."),
     text: str = typer.Option(None, help="New text (re-embeds). Omit to keep."),
     metadata: str = typer.Option("", help="New metadata (replaces entirely). Omit to keep."),
+    merge_metadata: bool = typer.Option(
+        False, "--merge-metadata",
+        help="Merge the given metadata keys into the existing payload instead of replacing."),
     collection: str = typer.Option("", help="Collection holding the point."),
 ) -> None:
     """Update an existing memory in place under the same ID."""
-    _emit(_guard(update_memory(point_id, text, metadata, collection)))
+    _emit(_guard(update_memory(point_id, text, metadata, collection,
+                               merge_metadata=merge_metadata)))
+
+
+@app.command()
+def patch(
+    point_id: str = typer.Argument(..., help="ID of the memory to patch."),
+    set: str = typer.Option("{}", "--set", help="Metadata keys to merge (JSON)."),
+    unset: list[str] = typer.Option([], "--unset", help="Metadata key to remove (repeatable)."),
+    collection: str = typer.Option("", help="Collection holding the point."),
+) -> None:
+    """Patch metadata without re-embedding (no embedding call)."""
+    _emit(_guard(patch_metadata(point_id, set, list(unset), collection)))
 
 
 @app.command()

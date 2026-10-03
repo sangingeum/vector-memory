@@ -179,6 +179,39 @@ def search_memory(query: str, limit: int = 3, filter: str | dict[str, Any] = "",
     return _append_warning("\n".join(out), warning)
 
 
+def patch_metadata(point_id: str, set: str | dict[str, Any] = "{}",
+                   unset: list[str] | None = None, collection: str = "") -> str:
+    """Patch metadata without re-embedding (metadata-only ops work item).
+
+    ``set`` merges the given keys into the payload; ``unset`` removes keys.
+    No embedding call; the vector is untouched; ``_updated_*`` is bumped.
+    """
+    from .store import pop_last_warning
+
+    name = collection if collection and collection.strip() else COLLECTION_NAME
+    set_dict = parse_metadata(set) if _has_metadata(set) else {}
+    if unset is None:
+        unset = []
+    if not set_dict and not unset:
+        raise ArgumentError("nothing to patch — provide --set and/or --unset")
+    if not _store.qdrant.collection_exists(name):
+        raise NotFoundError(f"collection {name!r} does not exist")
+    existing = _store.qdrant.retrieve(collection_name=name, ids=[point_id], with_payload=True)
+    if not existing:
+        raise NotFoundError(f"point_id {point_id} not found")
+    if unset:
+        _store.qdrant.delete_payload(
+            collection_name=name, keys=unset, points=[point_id], wait=True
+        )
+    if set_dict:
+        set_dict.update(_payload.system_fields_for_update(existing[0].payload or {}, None))
+        _store.qdrant.set_payload(collection_name=name, payload=set_dict, points=[point_id], wait=True)
+    return _append_warning(
+        f"Memory patched (ID: {point_id}, collection: {name})",
+        pop_last_warning(),
+    )
+
+
 def _backend_or_internal(exc: Exception) -> Exception:
     """Classify an exception from the Qdrant/embedding layer."""
     from .errors import BackendError
@@ -197,8 +230,12 @@ def _has_metadata(metadata: str | dict[str, Any]) -> bool:
 
 def update_memory(point_id: str, text: str | None = None,
                   metadata: str | dict[str, Any] = "",
-                  collection: str = "") -> str:
-    """Update an existing memory (point) in place under the same ID."""
+                  collection: str = "", merge_metadata: bool = False) -> str:
+    """Update an existing memory (point) in place under the same ID.
+
+    Default metadata semantics are REPLACE (unchanged); ``merge_metadata=True``
+    merges the given keys into the existing payload instead.
+    """
     if (text is None or not text.strip()) and not _has_metadata(metadata):
         raise ArgumentError("nothing to update — provide new text, new metadata, or both")
     name = collection if collection and collection.strip() else COLLECTION_NAME
@@ -208,19 +245,37 @@ def update_memory(point_id: str, text: str | None = None,
     if not existing:
         raise NotFoundError(f"point_id {point_id} not found")
     point = existing[0]
+    old_payload = dict(point.payload or {})
     if _has_metadata(metadata):
         meta_dict = parse_metadata(metadata)
-        payload: dict[str, Any] = dict(meta_dict)
+        if merge_metadata:
+            payload: dict[str, Any] = dict(old_payload)
+            payload.update(meta_dict)
+        else:
+            payload = dict(meta_dict)
     else:
-        payload = dict(point.payload or {})
+        payload = dict(old_payload)
     if text is None or not text.strip():
-        # Metadata-only update: keep the existing text and vector, replace
-        # the payload without re-embedding.
-        old_payload = point.payload or {}
+        # Metadata-only update: keep the existing text and vector, rewrite the
+        # payload without re-embedding. Replace mode must drop keys absent from
+        # the new metadata, so the full payload is upserted (set_payload would
+        # only merge and silently keep removed keys).
         if _has_metadata(metadata):
             payload["text"] = old_payload.get("text", "")
         payload.update(_payload.system_fields_for_update(old_payload, None))
-        _store.qdrant.set_payload(collection_name=name, payload=payload, points=[point_id])
+        if not merge_metadata:
+            vector = point.vector
+            if vector is None:  # with_vectors omitted — refetch
+                vector = _store.qdrant.retrieve(
+                    collection_name=name, ids=[point_id], with_vectors=True
+                )[0].vector
+            _store.qdrant.upsert(
+                collection_name=name,
+                points=[PointStruct(id=point_id, vector=vector, payload=payload)],
+                wait=True,
+            )
+        else:
+            _store.qdrant.set_payload(collection_name=name, payload=payload, points=[point_id])
         return _with_lenient_warning(f"Memory updated (ID: {point_id}, collection: {name})")
     stripped = validate_text(text)
     old_payload = point.payload or {}

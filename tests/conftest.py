@@ -93,15 +93,23 @@ class FakeQdrant:
     def upsert(self, collection_name, points, **kw):
         coll = self.collections.setdefault(collection_name, {"dim": 8, "points": {}})
         for p in points:
-            coll["points"][str(p.id)] = dict(p.payload or {})
+            vector = getattr(p, "vector", None)
+            payload = dict(p.payload or {})
+            if vector is not None:
+                payload["_vector"] = list(vector)
+            coll["points"][str(p.id)] = payload
 
-    def retrieve(self, collection_name, ids, with_payload=False, **kw):
+    def retrieve(self, collection_name, ids, with_payload=False, with_vectors=False, **kw):
         coll = self.collections.get(collection_name, {"points": {}})
-        return [
-            Record(id=pid, payload=coll["points"][str(pid)], vector=None)
-            for pid in ids
-            if str(pid) in coll["points"]
-        ]
+        out = []
+        for pid in ids:
+            if str(pid) not in coll["points"]:
+                continue
+            stored = coll["points"][str(pid)]
+            vector = stored.get("_vector") if with_vectors else None
+            payload = {k: v for k, v in stored.items() if k != "_vector"}
+            out.append(Record(id=pid, payload=payload, vector=vector))
+        return out
 
     def set_payload(self, collection_name, payload, points, **kw):
         coll = self.collections.get(collection_name, {"points": {}})

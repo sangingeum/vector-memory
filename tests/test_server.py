@@ -374,13 +374,13 @@ def test_legacy_embed_fallback(monkeypatch):
     assert len(calls) == 3  # legacy fallback goes one call per text
 
 
-def test_tool_count_is_six():
+def test_tool_count_is_seven():
     import anyio
 
     tools = anyio.run(s.mcp.list_tools)
-    assert len(tools) == 6
+    assert len(tools) == 7
     names = {t.name for t in tools}
     assert names == {
         "save_memory", "save_memories", "search_memory",
-        "update_memory", "delete_memory", "list_collections",
+        "update_memory", "patch_metadata", "delete_memory", "list_collections",
     }
