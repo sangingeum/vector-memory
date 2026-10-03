@@ -16,10 +16,7 @@ from typing import Any
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance,
-    FieldCondition,
     Filter,
-    MatchAny,
-    MatchValue,
 )
 
 logger = logging.getLogger("vector-memory")
@@ -163,30 +160,9 @@ def parse_metadata(metadata: str | dict[str, Any] | None) -> dict[str, Any]:
 def build_filter(filter_json: str | dict[str, Any] | None) -> tuple[Filter | None, str | None]:
     """Build a Qdrant :class:`Filter` from a JSON string or an already-parsed dict.
 
-    Accepts ``{"field": value}`` pairs. A list value becomes ``MatchAny``
-    (field matches any of the values), a scalar becomes ``MatchValue``.
-    All conditions are AND-ed (Filter.must). Invalid input yields
-    ``(None, warning)`` (search without a filter) so the caller can surface
-    the warning.
+    Validation and the v2 DSL live in :mod:`vector_memory.filters`; this
+    wrapper keeps the historical ``(filter, warning)`` shape used by core ops.
     """
-    if filter_json is None:
-        return None, None
-    if isinstance(filter_json, dict):
-        parsed = filter_json
-    elif isinstance(filter_json, str) and filter_json.strip():
-        try:
-            parsed = json.loads(filter_json)
-        except json.JSONDecodeError as exc:
-            logger.warning("Invalid filter JSON %r (%s) — ignoring filter", filter_json, exc)
-            return None, WARN_INVALID_FILTER
-    else:
-        return None, None
-    if not isinstance(parsed, dict) or not parsed:
-        return None, None
-    conditions = []
-    for key, value in parsed.items():
-        if isinstance(value, list):
-            conditions.append(FieldCondition(key=key, match=MatchAny(any=value)))
-        else:
-            conditions.append(FieldCondition(key=key, match=MatchValue(value=value)))
-    return Filter(must=conditions), None
+    from .filters import build_filter as compile_dsl
+
+    return compile_dsl(filter_json)

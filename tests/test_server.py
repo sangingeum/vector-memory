@@ -258,11 +258,18 @@ def test_save_metadata_not_dict_lenient(env, monkeypatch):
     assert "Warning: metadata is not a JSON object (dict); saved with empty metadata" in out
 
 
-def test_search_invalid_filter_json_warning(env):
+def test_search_invalid_filter_json_strict(env):
+    from vector_memory.errors import ArgumentError
+    s.save_memory("tagged doc", json.dumps({"tags": ["x"]}))
+    with pytest.raises(ArgumentError, match="filter is not valid JSON"):
+        s.search_memory("tagged doc", filter="{bad json")
+
+
+def test_search_invalid_filter_json_lenient(env, monkeypatch):
+    monkeypatch.setenv("VM_LENIENT", "1")
     s.save_memory("tagged doc", json.dumps({"tags": ["x"]}))
     out = s.search_memory("tagged doc", filter="{bad json")
     assert "Warning: failed to parse filter JSON; searching without a filter" in out
-    assert "Search failed" not in out
     assert "tagged doc" in out  # search still ran, just unfiltered
 
 

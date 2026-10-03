@@ -139,11 +139,18 @@ def search(
     include_inactive: bool = typer.Option(
         False, "--include-inactive",
         help="Include superseded/archived memories (annotated with status)."),
+    since: str = typer.Option("", "--since", help="Only memories created after this (7d, 24h, or ISO date)."),
+    before: str = typer.Option("", "--before", help="Only memories created before this (7d, 24h, or ISO date)."),
+    tag: list[str] = typer.Option([], "--tag", help="Tag filter (repeatable, any-of)."),
+    type_filter: str = typer.Option("", "--type", help="Exact type filter."),
+    source: str = typer.Option("", "--source", help="Exact source filter."),
     json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
 ) -> None:
     """Search stored documents/scenarios semantically similar to a query."""
     _run_cli(search_memory, query, limit, filter, collection, project,
-             include_inactive=include_inactive, json_mode=json_output)
+             include_inactive=include_inactive, since=since, before=before,
+             tag=list(tag), type=type_filter, source=source,
+             json_mode=json_output)
 
 
 @app.command()

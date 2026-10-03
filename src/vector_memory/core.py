@@ -13,7 +13,7 @@ import json
 import uuid
 from typing import Any
 
-from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
+from qdrant_client.models import PointStruct
 
 from . import dedupe as _dedupe
 from . import payload as _payload
@@ -266,19 +266,21 @@ def save_memories(texts: list[str], metadata: str | dict[str, Any] = "{}",
 
 def search_memory(query: str, limit: int = 3, filter: str | dict[str, Any] = "",
                   collection: str = "", project: str = "",
-                  include_inactive: bool = False) -> str:
+                  include_inactive: bool = False,
+                  since: str = "", before: str = "", tag: list[str] | None = None,
+                  type: str = "", source: str = "") -> str:
     """Search for stored documents/scenarios similar to a query.
 
     Superseded/archived memories are hidden by default (legacy points without
     a ``_status`` field stay visible); ``include_inactive=True`` returns all
-    with a ``status=...`` annotation.
+    with a ``status=...`` annotation. Convenience flags (since/before/tag/
+    type/source/project) compile into the same filter object.
     """
     qdrant_filter, warning = build_filter(filter)
-    if project:
-        proj_cond = FieldCondition(key="project", match=MatchValue(value=project))
-        must: list[Any] = list(qdrant_filter.must or []) if qdrant_filter else []
-        must.append(proj_cond)
-        qdrant_filter = Filter(must=must)
+    from .filters import merge_convenience
+
+    qdrant_filter = merge_convenience(qdrant_filter, project=project, type=type,
+                                      tag=tag, source=source, since=since, before=before)
     if not include_inactive:
         qdrant_filter = _payload.active_filter(qdrant_filter)
     try:
