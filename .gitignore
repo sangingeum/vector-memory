@@ -27,3 +27,4 @@ venv/
 .env
 test_stderr.log
 mismatch_stderr.log
+docs/fixtures/
