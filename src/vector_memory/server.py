@@ -15,6 +15,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from . import browse as _browse
 from . import core as _core
 from .embedding import EMBED_MODEL, OLLAMA_URL
 from .store import COLLECTION_NAME, QDRANT_URL, qdrant
@@ -125,6 +126,32 @@ def delete_memory(point_id: str, collection: str = "") -> str:
 def list_collections() -> str:
     """List all collections currently present in Qdrant."""
     return _core.call(_core.list_collections)
+
+
+@mcp.tool()
+def get(point_ids: list[str], collection: str = "", with_system: bool = False) -> str:
+    """Fetch full text + metadata for the given memory IDs (no embedding call)."""
+    return _core.call(_browse.get_memory, point_ids, collection, with_system)
+
+
+@mcp.tool()
+def list_memories(collection: str = "", limit: int = 25, project: str = "",
+                  include_inactive: bool = False) -> str:
+    """Browse memories (newest first) without embedding a query."""
+    return _core.call(_browse.list_memories, collection, "", limit, "", project,
+                      include_inactive)
+
+
+@mcp.tool()
+def count(collection: str = "", project: str = "") -> str:
+    """Count active memories in a collection (optionally project-scoped)."""
+    return _core.call(_browse.count_memories, collection, "", project, False)
+
+
+@mcp.tool()
+def values(field: str, collection: str = "", limit: int = 50) -> str:
+    """Discover distinct values of project/type/tags/source in a collection."""
+    return _core.call(_browse.field_values, field, collection, "", limit, "")
 
 
 def main() -> None:

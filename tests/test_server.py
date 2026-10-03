@@ -389,5 +389,6 @@ def test_tool_count():
     assert names == {
         "save_memory", "save_superseding", "save_memories", "search_memory",
         "archive", "unarchive", "update_memory", "patch_metadata",
-        "delete_memory", "list_collections",
+        "delete_memory", "list_collections", "get", "list_memories",
+        "count", "values",
     }

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import typer
 
+from . import browse
+from .browse import get_memory
 from .core import (
     delete_memory,
     list_collections,
@@ -283,6 +285,65 @@ def _fmt_reembed(s: dict) -> str:
 def _run_safe(fmt, op, *args, **kwargs) -> str:
     """Format the summary of an op that must not raise past the CLI boundary."""
     return fmt(op(*args, **kwargs))
+
+
+@app.command()
+def get(
+    point_ids: str = typer.Argument(..., help="Comma-separated point IDs."),
+    collection: str = typer.Option("", help="Collection holding the points."),
+    system: bool = typer.Option(False, "--system", help="Include _-prefixed system fields."),
+    json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
+) -> None:
+    """Fetch full text + metadata for the given memories (no embedding call)."""
+    ids = [s.strip() for s in point_ids.split(",") if s.strip()]
+    _run_cli(get_memory, ids, collection, with_system=system, json_mode=json_output)
+
+
+@app.command()
+def list_memories(
+    collection: str = typer.Option("", help="Collection to browse."),
+    filter: str = typer.Option("", help="Payload filter as JSON."),
+    limit: int = typer.Option(25, help="Page size."),
+    order_by: str = typer.Option("", "--order-by", help="Sort by created|updated (newest first)."),
+    project: str = typer.Option("", help="Project filter."),
+    include_inactive: bool = typer.Option(False, "--include-inactive"),
+    cursor: str = typer.Option("", help="Offset from the previous page's next-cursor."),
+) -> None:
+    """Browse memories (deterministic newest-first order, with next-cursor)."""
+    _run_cli(browse.list_memories, collection, filter, limit, order_by, project,
+             include_inactive, cursor)
+
+
+@app.command()
+def count(
+    collection: str = typer.Option("", help="Collection to count."),
+    filter: str = typer.Option("", help="Payload filter as JSON."),
+    project: str = typer.Option("", help="Project filter."),
+    include_inactive: bool = typer.Option(False, "--include-inactive"),
+) -> None:
+    """Count memories matching the (optional) filter."""
+    _run_cli(browse.count_memories, collection, filter, project, include_inactive)
+
+
+@app.command()
+def stats(
+    collection: str = typer.Option("", help="Collection to summarize."),
+    max_scan: int = typer.Option(5000, help="Cap on points scanned."),
+) -> None:
+    """Per-collection summary: statuses, projects, types, created range, model."""
+    _run_cli(browse.collection_stats, collection, max_scan)
+
+
+@app.command()
+def values(
+    field: str = typer.Argument(..., help="project | type | tags | source"),
+    collection: str = typer.Option("", help="Collection to inspect."),
+    filter: str = typer.Option("", help="Payload filter as JSON."),
+    limit: int = typer.Option(50, help="Max distinct values."),
+    project: str = typer.Option("", help="Project filter."),
+) -> None:
+    """Discover distinct values of a metadata field (schema in use)."""
+    _run_cli(browse.field_values, field, collection, filter, limit, project)
 
 
 @app.command()
