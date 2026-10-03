@@ -10,6 +10,7 @@ stay in the ``embedding`` / ``store`` modules.
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from typing import Any
 
@@ -287,13 +288,22 @@ def search_memory(query: str, limit: int = 3, filter: str | dict[str, Any] = "",
                   collection: str = "", project: str = "",
                   include_inactive: bool = False,
                   since: str = "", before: str = "", tag: list[str] | None = None,
-                  type: str = "", source: str = "") -> str:
+                  type: str = "", source: str = "",
+                  min_score: float | None = None,
+                  recency_weight: float = 0.0,
+                  mmr: float = 0.0,
+                  brief: bool = False,
+                  max_chars: int = 0,
+                  output_format: str = "text") -> str:
     """Search for stored documents/scenarios similar to a query.
 
     Superseded/archived memories are hidden by default (legacy points without
     a ``_status`` field stay visible); ``include_inactive=True`` returns all
-    with a ``status=...`` annotation. Convenience flags (since/before/tag/
-    type/source/project) compile into the same filter object.
+    with a ``status=...`` annotation. Enhancements (all optional):
+    ``min_score`` (Qdrant score_threshold), ``recency_weight`` (0-1
+    application-code re-rank, 90-day half-life), ``mmr`` (maximal marginal
+    relevance for diversity), ``brief``/``max_chars`` (per-hit truncation,
+    prefers the ``summary`` metadata), ``output_format`` compact|text.
     """
     qdrant_filter, warning = build_filter(filter)
     from .filters import merge_convenience
@@ -302,6 +312,12 @@ def search_memory(query: str, limit: int = 3, filter: str | dict[str, Any] = "",
                                       tag=tag, source=source, since=since, before=before)
     if not include_inactive:
         qdrant_filter = _payload.active_filter(qdrant_filter)
+    # Candidate fetch: over-sample for re-ranking/MMR (floor 25 for small limits).
+    fetch = max(1, limit)
+    if mmr > 0:
+        fetch = max(fetch * 4, 25)
+    elif recency_weight > 0:
+        fetch = max(fetch * 3, 25)
     try:
         name = collection if collection and collection.strip() else COLLECTION_NAME
         _fingerprint.check_collection_model(name, current_embed_model())
@@ -310,32 +326,112 @@ def search_memory(query: str, limit: int = 3, filter: str | dict[str, Any] = "",
             collection_name=name,
             query=query_vector,
             query_filter=qdrant_filter,
-            limit=max(1, limit),
+            limit=fetch,
             with_payload=True,
+            with_vectors=mmr > 0,
+            score_threshold=min_score if min_score is not None else None,
         )
-        hits = response.points
+        hits = list(response.points)
     except Exception as exc:
         raise _backend_or_internal(exc) from exc
+
+    if recency_weight > 0 and hits:
+        import math
+        import os
+
+        half_life = float(os.environ.get("RECENCY_HALF_LIFE_DAYS", "90"))
+        now = time.time()
+        def _rerank(hit):
+            created = (hit.payload or {}).get(_payload.CREATED_TS)
+            age_days = max(0.0, (now - created) / 86400) if isinstance(created, (int, float)) else 0.0
+            recency = math.exp(-math.log(2) * age_days / half_life)
+            return hit.score * (1 - recency_weight) + recency_weight * recency
+        hits.sort(key=lambda h: (-_rerank(h), str(h.id)))
+
+    if mmr > 0 and hits:
+        hits = _mmr_select(hits, limit, mmr)
+    else:
+        hits = hits[:max(1, limit)]
 
     if not hits:
         return _append_warning("No matching memories found.", warning)
 
+    brief_chars = max_chars if max_chars > 0 else (300 if brief else 0)
     out = [f"Search results ({len(hits)} hits, collection: {name}):"]
     for hit in hits:
         payload = hit.payload or {}
-        text = payload.get("text", "")
+        text = str(payload.get("text", ""))
         status = payload.get(_payload.STATUS)
         status_note = ""
         if status:
             superseded_by = payload.get(_payload.SUPERSEDED_BY)
             status_note = f" [status={status}" + (f" -> {superseded_by}" if superseded_by else "") + "]"
         meta = {k: v for k, v in payload.items() if k != "text" and not k.startswith("_")}
+        summary_text = str(meta.get("summary", "")) if meta else ""
+        if output_format == "compact":
+            shown = summary_text or text
+            if brief_chars and len(shown) > brief_chars:
+                shown = shown[:brief_chars] + f" [truncated; use: get {hit.id}]"
+            out.append(
+                f"{hit.id}  {hit.score:.4f}  [{meta.get('project', '-')}/{meta.get('type', '-')}]{status_note}  {shown}"
+            )
+            continue
+        if brief_chars:
+            shown = summary_text or text
+            if len(shown) > brief_chars:
+                shown = shown[:brief_chars] + f" [truncated; use: get {hit.id}]"
+        else:
+            shown = text
         meta_str = json.dumps(meta, ensure_ascii=False) if meta else "{}"
         out.append(
             f"- [ID: {hit.id}] [score: {hit.score:.4f}]{status_note} "
-            f"metadata: {meta_str} | content: {text}"
+            f"metadata: {meta_str} | content: {shown}"
         )
     return _append_warning("\n".join(out), warning)
+
+
+def _mmr_select(hits: list, limit: int, lam: float) -> list:
+    """Maximal marginal relevance: greedy diverse selection over vectors."""
+    import math
+
+    def _vec(hit):
+        v = getattr(hit, "vector", None)
+        if isinstance(v, dict):
+            v = next(iter(v.values()), None)
+        return v
+
+    def _cos(a, b):
+        if a is None or b is None:
+            return 0.0
+        dot = sum(x * y for x, y in zip(a, b, strict=False))
+        na = math.sqrt(sum(x * x for x in a)) or 1.0
+        nb = math.sqrt(sum(y * y for y in b)) or 1.0
+        return dot / (na * nb)
+
+    selected: list = []
+    candidates = list(hits)
+    while candidates and len(selected) < limit:
+        if not selected:
+            best = candidates[0]
+        else:
+            best = max(
+                candidates,
+                key=lambda h: (
+                    lam * h.score - (1 - lam) * max(
+                        (_cos(_vec(h), _vec(s)) for s in selected), default=0.0
+                    ),
+                    str(h.id),
+                ),
+            )
+        selected.append(best)
+        candidates.remove(best)
+    # Drop vectors from the output (set to None so payloads stay).
+    for h in selected:
+        try:
+            h.vector = None
+        except (AttributeError, TypeError, ValueError):
+            pass
+    return selected
 
 
 def patch_metadata(point_id: str, set: str | dict[str, Any] = "{}",

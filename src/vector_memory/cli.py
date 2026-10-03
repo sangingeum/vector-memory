@@ -146,12 +146,21 @@ def search(
     tag: list[str] = typer.Option([], "--tag", help="Tag filter (repeatable, any-of)."),
     type_filter: str = typer.Option("", "--type", help="Exact type filter."),
     source: str = typer.Option("", "--source", help="Exact source filter."),
+    min_score: float = typer.Option(None, "--min-score", help="Drop hits below this score."),
+    recency_weight: float = typer.Option(
+        0.0, "--recency-weight", help="Re-rank by recency (0-1; 0 = relevance only)."),
+    mmr: float = typer.Option(0.0, "--mmr", help="Maximal marginal relevance for diversity (0-1)."),
+    brief: bool = typer.Option(False, "--brief", help="Truncate hit text (prefers summary)."),
+    max_chars: int = typer.Option(0, "--max-chars", help="Per-hit char cap (0 = full text)."),
+    output_format: str = typer.Option("text", "--format", help="text | compact"),
     json_output: bool = typer.Option(False, "--json", help="JSON envelope output (schema 1)."),
 ) -> None:
     """Search stored documents/scenarios semantically similar to a query."""
     _run_cli(search_memory, query, limit, filter, collection, project,
              include_inactive=include_inactive, since=since, before=before,
              tag=list(tag), type=type_filter, source=source,
+             min_score=min_score, recency_weight=recency_weight, mmr=mmr,
+             brief=brief, max_chars=max_chars, output_format=output_format,
              json_mode=json_output)
 
 
